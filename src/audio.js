@@ -13,16 +13,19 @@ const Sound = (() => {
     master = ctx.createGain(); master.gain.value = 0.6; master.connect(ctx.destination);
     musicGain = ctx.createGain(); musicGain.gain.value = 0.32; musicGain.connect(master);
     sfxGain = ctx.createGain(); sfxGain.gain.value = 0.5; sfxGain.connect(master);
-    buffers = { level: renderTrack(TRACKS.level), boss: renderTrack(TRACKS.boss) };
+    buffers = Object.fromEntries(Object.entries(TRACKS).map(([name, spec]) => [name, renderTrack(spec)]));
   }
   function resume() { if (ctx && ctx.state === 'suspended') ctx.resume(); }
 
   // ---------------- music ----------------
-  // Two original loops in a dark castle-fight mood: 'level' for normal play, 'boss'
-  // while a boss is on screen. Each is rendered once into a looping AudioBuffer.
-  // chords: one per bar, root + quality (m/M). lead: one string per bar, note/beats.
-  // bass: semitone offsets per eighth. arp: indices into (root, 3rd, 5th, octave).
-  // drums: 16th-note grids; fill replaces the snare on every 8th bar.
+  // Original loops in a dark castle-fight mood: 'level' for normal play, 'boss' for
+  // regular bosses, 'final' for the final boss. Each is rendered once into a looping
+  // AudioBuffer.
+  // chords: one per bar, root + quality (m/M). lead: one string per bar, note/beats
+  // ('r' rests). bass: semitone offsets spread evenly over the bar. arp: indices into
+  // (root, 3rd, 5th, octave). pad: hold the chord as an organ for the whole bar.
+  // leadDouble: add the lead an octave lower. drums: 16th-note grids; fill replaces
+  // the snare on every 8th bar.
   const TRACKS = {
     level: {
       bpm: 144,
@@ -82,6 +85,36 @@ const Sound = (() => {
       hat: 'xxxxxxxxxxxxxxxx',
       fill: '....x...xxxxxxxx',
     },
+    final: {
+      bpm: 132,
+      chords: 'Em FM Em FM Cm Cm BM BM Em FM Em FM AbM GM FM BM',
+      lead: [
+        'E5/2 B4/1 E5/1',
+        'F5/3 E5/1',
+        'G5/2 F#5/1 E5/1',
+        'F5/1.5 A5/.5 C6/2',
+        'Eb6/2 D6/1 C6/1',
+        'G5/2 Eb5/2',
+        'D#5/1.5 F#5/.5 B5/2',
+        'A5/1 F#5/1 D#5/1 B4/1',
+        'E5/.5 E5/.5 G5/1 B5/2',
+        'C6/1 B5/.5 A5/.5 F5/2',
+        'E6/2 D6/1 B5/1',
+        'C6/1 A5/1 F5/1 C5/1',
+        'Eb6/2 C6/1 Ab5/1',
+        'D6/2 B5/1 G5/1',
+        'C6/1.5 A5/.5 F5/1 A5/1',
+        'B5/1 D#6/1 F#6/2',
+      ],
+      leadDuty: 0.5,
+      leadDouble: true,
+      bass: [0, 0, 0, 12, 0, 0, 0, 12, 0, 0, 0, 12, 0, 12, 0, 12],
+      pad: true,
+      kick: 'x.......x.x.....',
+      snare: '........x.......',
+      hat: 'x...x...x...x...',
+      fill: '........x.x.xxxx',
+    },
   };
   const NOTE = { C: 0, 'C#': 1, Db: 1, D: 2, 'D#': 3, Eb: 3, E: 4, F: 5, 'F#': 6, Gb: 6, G: 7, 'G#': 8, Ab: 8, A: 9, 'A#': 10, Bb: 10, B: 11 };
   const TRIADS = { m: [0, 3, 7], M: [0, 4, 7] };
@@ -126,7 +159,7 @@ const Sound = (() => {
       }
     }
 
-    const lead = pulse(0.25), bass = pulse(0.5), arp = pulse(0.125);
+    const lead = pulse(spec.leadDuty || 0.25), bass = pulse(0.5), arp = pulse(0.125), organ = pulse(0.5);
     const hatGain = spec.hat.split('x').length - 1 <= 8 ? 0.05 : 0.035;
     chords.forEach((chord, bar) => {
       const barT = bar * 4 * beat;
@@ -134,18 +167,31 @@ const Sound = (() => {
       for (const token of spec.lead[bar].split(' ')) {
         const [name, beats] = token.split('/');
         const dur = Number(beats) * beat;
-        note(t, dur, midi(noteNum(name)), 0.22, lead, 0.92, dur >= beat);
+        if (name !== 'r') {
+          note(t, dur, midi(noteNum(name)), 0.22, lead, 0.92, dur >= beat);
+          if (spec.leadDouble) note(t, dur, midi(noteNum(name) - 12), 0.12, lead, 0.92, dur >= beat);
+        }
         t += dur;
       }
       if (Math.abs(t - barT - 4 * beat) > 1e-9) throw new Error(`lead bar ${bar + 1} is not 4 beats`);
 
       const root = NOTE[chord.slice(0, -1)];
-      spec.bass.forEach((off, i) => note(barT + i * beat / 2, beat / 2, midi(36 + root + off), 0.2, bass, 0.8, false));
+      const bassStep = 4 * beat / spec.bass.length;
+      spec.bass.forEach((off, i) => note(barT + i * bassStep, bassStep, midi(36 + root + off), 0.2, bass, 0.8, false));
       const [, third, fifth] = TRIADS[chord.slice(-1)];
       const tones = [60 + root, 60 + root + third, 60 + root + fifth, 72 + root];
-      const step = spec.arpStep * beat;
-      for (let i = 0; i < Math.round(4 / spec.arpStep); i++) {
-        note(barT + i * step, step, midi(tones[spec.arp[i % spec.arp.length]]), 0.06, arp, 0.6, false);
+      if (spec.arp) {
+        const step = spec.arpStep * beat;
+        for (let i = 0; i < Math.round(4 / spec.arpStep); i++) {
+          note(barT + i * step, step, midi(tones[spec.arp[i % spec.arp.length]]), 0.06, arp, 0.6, false);
+        }
+      }
+      if (spec.pad) {
+        // two slightly detuned voices per chord tone give the organ its shimmer
+        for (const n of tones) {
+          note(barT, 4 * beat, midi(n - 12), 0.045, organ, 0.98, false);
+          note(barT, 4 * beat, midi(n - 12) * 1.004, 0.045, organ, 0.98, false);
+        }
       }
 
       const snare = bar % 8 === 7 ? spec.fill : spec.snare;

@@ -58,6 +58,28 @@ See [Debug / testing URL parameters](#debug--testing-url-parameters) for all opt
 
 Run out of funding and you are the little submarine that couldn't. Beat SCARLET at 4000 m and you have solved healthcare.
 
+## Corners cut (risk level)
+
+After choosing a pilot you can cut corners. Each shortcut makes Kaiko stronger and the ocean deadlier,
+and the number you take is your risk level, which multiplies every score gain:
+0 SAFE x1, 1 BOLD x1.3, 2 RECKLESS x1.7, 3 YOLO x2.2, 4 or more UNINSURABLE x3.
+Up/Down or click to move, Space or 1-7 to toggle, Enter to dive, Esc back to pilots.
+Your choices persist across retries.
+
+| Shortcut | Upside | Downside |
+|----------|--------|----------|
+| NO QUANTITATIVE EVALUATION | Speed +50% | All damage taken doubled |
+| SKIP CLINICAL VALIDATION | Your shots +50% damage | Bosses have +60% hp |
+| TRAIN ON UNCONSENTED DATA | Pickups twice as often | GDPR and Legal spawn double and hit double |
+| SINGLE AZURE REGION | Token pool and regen +60% | Outages twice as common and drain funding instead of tokens |
+| HOTFIX STRAIGHT TO PROD | Shots cost zero tokens | 8% of shots misfire and cost 5 funding |
+| OVERPROMISE TO INVESTORS | Start with 200% funding | Funding burns 2 per second |
+| SKIP SECURITY REVIEW | Special has no cooldown | Tech debt mines home in on you |
+
+To add one, append an entry to `RISKS` in `src/game.js`. If it only needs multipliers, set them on the
+modifier object in `apply(m)` (see `neutralMods` for the keys) and you are done; a new flag needs a
+matching check in `update`.
+
 ## Power-ups
 
 | Pickup        | Effect |
@@ -151,4 +173,5 @@ index.html?autostart=1&pilot=thomas&depth=2599&autofire=1&turbo=1
 | `autofire=1` | hold fire automatically |
 | `turbo=<n>` | run `n` simulation steps per frame (fast-forward) |
 | `god=1` | the pilot cannot be hurt (for checking boss stages) |
+| `risks=noeval,hotfix` | pre-select shortcuts by key: `noeval`, `noclin`, `nodata`, `oneregion`, `hotfix`, `overpromise`, `nosec` |
 | `debug=1` | exposes game state as `window.KAIKO` in the browser console |
