@@ -44,7 +44,7 @@
     },
     robert: {
       key: 'robert', name: 'ROBERT', title: 'CTO', sprite: 'kaiko_mini', portrait: 'robert', color: '#4fd1ff',
-      hatch: { x: 0.48, y: 0.36, size: 0.26 },
+      hatch: { x: 0.58, y: 0.33, size: 0.26 }, // between the intake tower and the periscope
       width: 110, hitScale: 0.55, speed: 310, funding: 85, tokens: 120, fireRate: 0.16, tokenRegen: 14, bulletDmg: 1,
       blurb: ['The nimble scout sub.', 'Faster, cheaper shots,', 'thinner hull.'],
       special: { name: 'DEEP THOUGHT', cost: 35, cooldown: 15, duration: 4, desc: ['Slow the whole ocean to 30%', 'for 4 seconds.', 'Kaiko keeps full speed.'] },
