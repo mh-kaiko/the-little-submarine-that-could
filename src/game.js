@@ -183,10 +183,10 @@
       x: 160, y: H / 2, vx: 0, vy: 0, w: c.width, h: spriteH(c.sprite, c.width),
       hw: c.width * c.hitScale / 2, hh: spriteH(c.sprite, c.width) * c.hitScale / 2,
       funding, maxFunding: funding, tokens, maxTokens: tokens,
-      fireCd: 0, invuln: 0, shield: 0, opus: 0, vortex: 0, deep: 0, onTopic: 0, specialCd: 0, tilt: 0,
+      fireCd: 0, invuln: 0, shield: 0, opus: 0, vortex: 0, deep: 0, onTopic: 0, specialCd: 0, tilt: 0, drain: 0,
     };
     G.bullets = []; G.ebullets = []; G.enemies = []; G.hazards = []; G.pickups = []; G.beams = [];
-    G.particles = []; G.texts = []; G.bubbles = [];
+    G.particles = []; G.texts = []; G.bubbles = []; G.drain = [];
     G.depth = START_DEPTH; G.score = 0; G.time = 0; G.kills = 0;
     G.spawnT = 1.5; G.hazardT = 6; G.pickupT = 8; G.zoneIdx = -1; G.banner = null;
     G.boss = null; G.bossDefeated = {}; G.scrollX = 0; G.wave = null; G.endAt = 0; G.drips = []; G.winAt = 0; G.confetti = [];
@@ -682,11 +682,15 @@
     p.tokens = Math.min(p.maxTokens, p.tokens + c.tokenRegen * G.mods.tokenRegen * dt);
     if (G.mods.burn) drainFunding(G.mods.burn * dt); // OVERPROMISE: constant burn rate
     if (keys.Space) shoot();
-    // azure drains tokens (or funding, with a single region)
+    // azure drains tokens (or funding, with a single region): chips stream out of the sub and get swallowed by the cloud
+    p.drain = Math.max(0, p.drain - dt);
     for (const h of G.hazards) if (h.kind === 'azure' && hitRect(p, h)) {
-      if (G.mods.azureFunding) { drainFunding(12 * dt); if (Math.random() < dt * 2) addText(p.x, p.y - 50, 'AZURE OUTAGE: funding draining', '#ff8080'); }
+      const fund = G.mods.azureFunding, left = fund ? p.funding : p.tokens;
+      if (left > 0) { p.drain = 0.25; h.gulp = 0.25; if (Math.random() < dt * 16) G.drain.push({ x: p.x + rand(-p.w, p.w) * 0.3, y: p.y + rand(-p.h, p.h) * 0.3, h, t: 0, life: rand(0.5, 0.8), wob: rand(-1, 1), color: fund ? '#5cff5c' : '#6ec6ff' }); }
+      if (fund) { drainFunding(12 * dt); if (Math.random() < dt * 2) addText(p.x, p.y - 50, 'AZURE OUTAGE: funding draining', '#ff8080'); }
       else { p.tokens = Math.max(0, p.tokens - 25 * dt); if (Math.random() < dt * 2) addText(p.x, p.y - 50, 'AZURE OUTAGE: tokens draining', '#8fb3ff'); }
     }
+    for (const d of G.drain) { d.t += dt; if (d.t >= d.life) d.dead = true; }
 
     // spawn enemies
     if (!zone.boss) {
@@ -774,7 +778,7 @@
     }
     // hazards
     for (const h of G.hazards) {
-      h.t += wdt; h.x += h.vx * wdt;
+      h.t += wdt; h.x += h.vx * wdt; if (h.gulp) h.gulp = Math.max(0, h.gulp - dt);
       h.y = keepInGap(h.x, h.hw, h.y, h.hh);
       if (h.kind === 'mine' && G.mods.homingMines) h.y += clamp(p.y - h.y, -110 * wdt, 110 * wdt); // NO SECURITY: mines seek you
       if (h.kind === 'mine') { h.y += Math.sin(h.t * 2) * 20 * wdt; if (hitRect(h, p)) { h.dead = true; burst(h.x, h.y, '#ff5c5c', 24, 240); hurtPlayer(20, 'tech debt'); } }
@@ -811,6 +815,7 @@
     G.beams = G.beams.filter(b => !b.dead);
     G.pickups = G.pickups.filter(k => !k.dead);
     G.particles = G.particles.filter(q => !q.dead);
+    G.drain = G.drain.filter(d => !d.dead);
     G.texts = G.texts.filter(t => !t.dead);
   }
 
@@ -961,6 +966,7 @@
         ctx.rotate(-h.t); text('TECH DEBT', 0, h.r + 12, 7, '#ff9b9b', 'center');
       } else {
         const puff = (dx, dy, r) => { ctx.beginPath(); ctx.arc(dx, dy, r, 0, 6.283); ctx.fill(); };
+        if (h.gulp > 0) { const g = 1 + 0.07 * Math.sin(elapsed * 22); ctx.scale(g, 2 - g); } // swallowing wobble
         ctx.fillStyle = 'rgba(80,120,220,0.55)'; puff(-35, 0, 30); puff(0, -12, 38); puff(35, 0, 30); puff(0, 14, 32);
         ctx.fillStyle = 'rgba(140,180,255,0.6)'; puff(-30, -4, 22); puff(5, -16, 26); puff(32, -2, 20);
         text('!', 0, -8, 22, '#ff3b3b', 'center'); text('AZURE OUTAGE', 0, 32, 7, '#dfe8ff', 'center');
@@ -1092,6 +1098,14 @@
     }
   }
   function drawEffects() {
+    // token chips being sucked into an azure cloud: accelerate toward its centre on a curling path, shrinking
+    for (const d of G.drain) {
+      const k = clamp(d.t / d.life, 0, 1), e = k * k * k;
+      const x = lerp(d.x, d.h.x, e) + Math.sin(k * Math.PI) * 26 * d.wob, y = lerp(d.y, d.h.y, e) - Math.sin(k * Math.PI) * 18;
+      const r = 5 * (1 - 0.7 * k);
+      ctx.fillStyle = d.color; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill();
+      ctx.fillStyle = '#e6f6ff'; ctx.fillRect(x - r * 0.4, y - r * 0.6, r * 0.5, r * 0.5);
+    }
     for (const q of G.particles) { ctx.globalAlpha = 1 - q.t / q.life; ctx.fillStyle = q.color; ctx.fillRect(q.x - q.size / 2, q.y - q.size / 2, q.size, q.size); }
     ctx.globalAlpha = 1;
     for (const t of G.texts) { ctx.globalAlpha = clamp(1 - (t.t / t.life - 0.6) / 0.4, 0, 1); text(t.text, t.x, t.y, t.big ? 12 : 9, t.color, 'center'); }
@@ -1103,6 +1117,7 @@
     ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(0, 0, W, 46);
     bar(16, 22, 220, 12, p.funding / p.maxFunding, p.funding < p.maxFunding * 0.3 ? '#ff5c5c' : '#5cff5c', 'FUNDING (HP)', `${Math.ceil(p.funding)}/${p.maxFunding}`);
     bar(262, 22, 220, 12, p.tokens / p.maxTokens, '#6ec6ff', 'TOKEN LIMIT (MANA)', `${Math.floor(p.tokens)}/${p.maxTokens}`);
+    if (p.drain > 0 && Math.floor(elapsed * 10) % 2 === 0) { ctx.strokeStyle = '#ff5c5c'; ctx.lineWidth = 2; ctx.strokeRect(259, 19, 226, 18); }
     // special
     const sp = c.special, ready = p.specialCd <= 0 && p.tokens >= sp.cost;
     bar(508, 22, 200, 12, p.specialCd > 0 ? 1 - p.specialCd / sp.cooldown : 1, ready ? c.color : '#777', `SHIFT: ${sp.name}`, ready ? 'READY' : p.specialCd > 0 ? `${Math.ceil(p.specialCd)}s` : `${sp.cost} TOK`);
