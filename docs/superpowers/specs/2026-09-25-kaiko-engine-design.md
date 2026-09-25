@@ -157,10 +157,10 @@ Actions:
 
 - Tier `t` unlocks at `(t - 1) * 20` seconds, so tier 5 arrives at 80 s.
 - Spawn interval starts at 1.5 s and shrinks linearly to 0.5 s at 120 s.
-- Each spawn picks a tier among the unlocked ones with weights favouring
-  higher tiers as time goes on, then picks an enemy within that tier by
-  `weight`. Tiers with no enemies are skipped. If no enemy is registered
-  at all, nothing spawns and the game still runs.
+- Each spawn picks a tier among the unlocked ones that have at least one
+  enemy, weighting tier `t` by `t` (so tier 1 gets rarer as higher tiers
+  unlock), then picks an enemy within that tier by `weight`. If no enemy is
+  registered at all, nothing spawns and the game still runs.
 - Spawn position: `x = width + sprite.width / 2`, `y` uniform between
   `sprite.height / 2` and `height - sprite.height / 2`. `on_spawn` may
   change it.
