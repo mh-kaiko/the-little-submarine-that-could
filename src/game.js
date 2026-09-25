@@ -58,7 +58,17 @@
       special: { name: 'STAY ON TOPIC', cost: 30, cooldown: 12, duration: 8, desc: ['8 seconds of free,', 'homing, piercing shots.', 'Nobody wanders off.'] },
     },
   };
-  const PILOTS = Object.keys(CHARACTERS); // select-screen order
+  // Hidden pilot, unlocked by the Konami code. Not on the select screen.
+  CHARACTERS.pm = {
+    key: 'pm', name: 'PERSONALIZED MEDICINE', title: 'CHEAT', sprite: 'kaiko_sub', color: '#ff5ca8', op: true,
+    gear: { art: 'dna', x: 0.03, y: -0.4, px: 1 / 60, bob: true }, // DNA helix standing on the hull where a pilot would be
+    width: 170, hitScale: 0.5, speed: 380, funding: 999, tokens: 999, fireRate: 0.07, tokenRegen: 300, bulletDmg: 4,
+    blurb: ['Tailored to every patient.', 'Unstoppable.', ''],
+    special: { name: 'TAILORED THERAPY', cost: 0, cooldown: 2, desc: ['Free screen-clearing wave', 'every 2 seconds.', ''] },
+  };
+  const PILOTS = Object.keys(CHARACTERS).filter(k => !CHARACTERS[k].op); // select-screen order
+  const KONAMI = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'KeyB', 'KeyA'];
+  let cheatKeys = [];
 
   // Pixel art drawn in code, pointing right. '.' is transparent.
   const GEAR = {
@@ -72,6 +82,10 @@
         'kkkkkkkkkkkkkkkkkkkssssskk..',
         '...................kkkkk....',
       ],
+    },
+    dna: {
+      pal: { b: '#4fd1ff', r: '#ff5ca8', '-': '#e8eef2' },
+      rows: ['b......r', '.b-..-r.', '..b..r..', '...br...', '...rb...', '..r..b..', '.r-..-b.', 'r......b', '.r-..-b.', '..r..b..', '...rb...', '...br...', '..b..r..', '.b-..-r.'],
     },
   };
 
@@ -220,6 +234,8 @@
   });
   function onKey(code) {
     if (code === 'KeyM') { Sound.toggleMute(); return; }
+    cheatKeys = [...cheatKeys, code].slice(-KONAMI.length);
+    if (KONAMI.every((k, i) => cheatKeys[i] === k)) { cheatKeys = []; activateCheat(); return; }
     if (state === 'title') {
       const i = PILOTS.indexOf(selected), n = PILOTS.length;
       if (code === 'ArrowLeft' || code === 'KeyA') { selected = PILOTS[(i + n - 1) % n]; Sound.play('select'); }
@@ -246,6 +262,17 @@
   }
   function toTitle() { state = 'title'; shake = 0; flash = 0; } // the game-over shake must not follow you to the title
   function toggleRisk(i) { const k = RISKS[i].key; if (riskSel.has(k)) riskSel.delete(k); else riskSel.add(k); Sound.play('select'); }
+  // Konami code: from the menus start a run as PERSONALIZED MEDICINE; mid-run, transform on the spot.
+  function activateCheat() {
+    selected = 'pm'; Sound.play('powerup'); flash = 0.6; shake = 0.4;
+    if (state === 'play' || state === 'paused') {
+      const p = G.player, c = CHARACTERS.pm, h = spriteH(c.sprite, c.width);
+      G.char = c; state = 'play';
+      Object.assign(p, { w: c.width, h, hw: c.width * c.hitScale / 2, hh: h * c.hitScale / 2, funding: c.funding, maxFunding: c.funding, tokens: c.tokens, maxTokens: c.tokens, specialCd: 0 });
+    } else startGame();
+    G.banner = { title: 'CHEAT: PERSONALIZED MEDICINE', sub: 'Tailored to every patient. Unstoppable.', t: 3, boss: false };
+    burst(G.player.x, G.player.y, '#ff5ca8', 60, 320); burst(G.player.x, G.player.y, '#4fd1ff', 60, 320);
+  }
   function startGame() { newGame(selected); state = 'play'; Sound.startMusic(); Sound.play('select'); }
 
   // ------------------------------------------------------------ spawning
@@ -449,20 +476,20 @@
       G.bullets.push({ x: p.x + p.w * 0.45, y: p.y + 4, vx: 520, vy: 0, r: 22, dmg: 6 * mult, pierce: true, kind: 'vortex', t: 0 });
       Sound.play('vortex'); return;
     }
-    const topic = p.onTopic > 0, cost = topic ? 0 : m.tokenCost;
+    const topic = p.onTopic > 0 || c.op, cost = topic ? 0 : m.tokenCost;
     if (p.tokens < cost) { // dry fire: the gun sputters a grey puff and the empty token bar blinks
       if (Math.random() < 0.15) addText(p.x, p.y - 50, 'TOKEN LIMIT!', '#ff6b6b');
       for (let i = 0; i < 5; i++) G.particles.push({ x: p.x + p.w * 0.45, y: p.y + 4, vx: rand(20, 70), vy: rand(-40, 10), life: rand(0.4, 0.7), t: 0, color: 'rgba(170,180,195,0.8)', size: rand(3, 6) });
       G.hud.tokEmpty = 0.5; Sound.play('denied'); p.fireCd = 0.25; return;
     }
     p.tokens -= cost;
-    if (m.misfire && Math.random() < m.misfire) { // HOTFIX STRAIGHT TO PROD: the shot blows up in the tube
+    if (m.misfire && !c.op && Math.random() < m.misfire) { // HOTFIX STRAIGHT TO PROD: the shot blows up in the tube
       p.fireCd = 0.35; burst(p.x + p.w * 0.45, p.y, '#ff8a3d', 14, 200); Sound.play('denied');
       drainFunding(5, 'MISFIRE! -5 funding'); return;
     }
     p.fireCd = c.fireRate * (topic ? TOPIC_FIRE : 1);
-    const angles = p.opus > 0 ? [-0.22, 0, 0.22] : [0];
-    for (const a of angles) G.bullets.push({ x: p.x + p.w * 0.45, y: p.y + 4, vx: Math.cos(a) * 620, vy: Math.sin(a) * 620, r: 5, dmg: c.bulletDmg * mult, pierce: false, kind: topic ? 'topic' : p.opus > 0 ? 'opus' : 'token', t: 0, homing: topic, pierceLeft: topic ? 1 : 0 });
+    const angles = c.op ? [-0.4, -0.2, 0, 0.2, 0.4] : p.opus > 0 ? [-0.22, 0, 0.22] : [0];
+    for (const a of angles) G.bullets.push({ x: p.x + p.w * 0.45, y: p.y + 4, vx: Math.cos(a) * 620, vy: Math.sin(a) * 620, r: 5, dmg: c.bulletDmg * mult, pierce: false, kind: c.op ? 'pm' : topic ? 'topic' : p.opus > 0 ? 'opus' : 'token', t: 0, homing: topic, pierceLeft: topic ? (c.op ? 3 : 1) : 0 });
     Sound.play('shoot');
   }
   // Turn a homing shot toward the nearest living enemy it has not hit yet, keeping its speed.
@@ -482,8 +509,11 @@
     if (p.specialCd > 0 || p.tokens < s.cost) { Sound.play('denied'); addText(p.x, p.y - 50, p.specialCd > 0 ? 'COOLDOWN' : 'NOT ENOUGH TOKENS', '#ff6b6b'); return; }
     p.tokens -= s.cost; p.specialCd = s.cooldown * G.mods.specialCd;
     Sound.play('special');
-    if (c.key === 'thomas') {
-      G.wave = { x: p.x, y: p.y, t: 0, hit: new Set() }; // damage lands as the wave front reaches each enemy
+    if (c.op) {
+      G.wave = { x: p.x, y: p.y, t: 0, hit: new Set(), dmg: 15, bossDmg: 25 };
+      addText(p.x, p.y - 60, 'TAILORED THERAPY!', c.color);
+    } else if (c.key === 'thomas') {
+      G.wave = { x: p.x, y: p.y, t: 0, hit: new Set(), dmg: 3, bossDmg: 6 }; // damage lands as the wave front reaches each enemy
       p.funding = Math.min(p.maxFunding, p.funding + 30);
       addText(p.x, p.y - 60, 'FUNDRAISE! +30 funding', '#5cff5c');
     } else if (c.key === 'robert') {
@@ -828,7 +858,7 @@
     if (G.wave) {
       const wv = G.wave; wv.t += dt;
       const r = waveRadius(wv), r2 = r * r;
-      for (const e of G.enemies) if (!e.dead && !wv.hit.has(e) && dist2(e.x, e.y, wv.x, wv.y) < r2) { wv.hit.add(e); damageEnemy(e, e.d.boss ? 6 : 3, true); burst(e.x, e.y, '#5cff5c', 10, 160); }
+      for (const e of G.enemies) if (!e.dead && !wv.hit.has(e) && dist2(e.x, e.y, wv.x, wv.y) < r2) { wv.hit.add(e); damageEnemy(e, e.d.boss ? wv.bossDmg : wv.dmg, true); burst(e.x, e.y, '#5cff5c', 10, 160); }
       for (const b of G.ebullets) if (dist2(b.x, b.y, wv.x, wv.y) < r2) b.dead = true;
       for (const b of G.blocks) if (b.kind === 'crate' && !b.dead && !wv.hit.has(b) && dist2(b.wx - G.scrollX, b.y, wv.x, wv.y) < r2) { wv.hit.add(b); damageBlock(b, 3); }
       if (wv.t > WAVE_TIME) G.wave = null;
@@ -897,7 +927,9 @@
       ctx.beginPath(); ctx.ellipse(p.x, p.y, p.w * 0.6, p.h * 0.75, 0, 0, 6.283); ctx.stroke(); ctx.restore();
     }
     drawPilotHead(p, c);
+    if (c.op) { ctx.save(); ctx.filter = `hue-rotate(${(elapsed * 240) % 360}deg) saturate(1.6)`; } // PERSONALIZED MEDICINE shimmers through every colour
     drawSprite(c.sprite, p.x, p.y, p.w, p.h, false, p.tilt);
+    if (c.op) ctx.restore();
     drawGear(p, c);
     if (p.opus > 0) { ctx.save(); ctx.globalAlpha = 0.6; text('OPUS 6', p.x, p.y - p.h / 2 - 12, 8, POWERUPS.opus6.color, 'center'); ctx.restore(); }
     if (p.vortex > 0) { ctx.save(); ctx.globalAlpha = 0.7; text('VORTEX 3', p.x, p.y - p.h / 2 - 24, 8, POWERUPS.vortex3.color, 'center'); ctx.restore(); }
@@ -936,7 +968,7 @@
     if (!art) return;
     const px = p.w * g.px, rw = art.rows[0].length * px, rh = art.rows.length * px;
     ctx.save(); ctx.translate(p.x, p.y); if (p.tilt) ctx.rotate(p.tilt);
-    ctx.translate(g.x * p.w - rw / 2, g.y * p.w - rh / 2);
+    ctx.translate(g.x * p.w - rw / 2, g.y * p.w - rh / 2 + (g.bob ? Math.sin(elapsed * 4) * 3 : 0));
     art.rows.forEach((row, j) => { for (let i = 0; i < row.length; i++) if (row[i] !== '.') { ctx.fillStyle = art.pal[row[i]]; ctx.fillRect(i * px, j * px, px + 0.5, px + 0.5); } });
     ctx.restore();
   }
@@ -963,6 +995,11 @@
         ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.t * 12);
         for (let i = 0; i < 3; i++) { ctx.rotate(2.094); ctx.fillStyle = i === 0 ? '#7dffb3' : i === 1 ? '#4fd1ff' : '#ffffff'; ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(b.r * 0.8, -b.r * 0.6, b.r * 1.2, b.r * 0.3); ctx.quadraticCurveTo(b.r * 0.4, b.r * 0.4, 0, 0); ctx.fill(); }
         ctx.restore();
+      } else if (b.kind === 'pm') {
+        const col = `hsl(${(b.t * 600 + b.y) % 360}, 100%, 65%)`;
+        if (b.trail) { ctx.save(); ctx.strokeStyle = col; ctx.globalAlpha = 0.4; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(b.trail[0], b.trail[1]); for (let i = 2; i < b.trail.length; i += 2) ctx.lineTo(b.trail[i], b.trail[i + 1]); ctx.stroke(); ctx.restore(); }
+        ctx.fillStyle = col; ctx.beginPath(); ctx.arc(b.x, b.y, 6, 0, 6.283); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.fillRect(b.x - 2, b.y - 2, 4, 4);
       } else if (b.kind === 'topic') {
         if (b.trail) { ctx.save(); ctx.strokeStyle = CHARACTERS.veerle.color; ctx.lineCap = 'round'; for (let i = 2; i < b.trail.length; i += 2) { ctx.globalAlpha = 0.5 * i / b.trail.length; ctx.lineWidth = 1 + 3 * i / b.trail.length; ctx.beginPath(); ctx.moveTo(b.trail[i - 2], b.trail[i - 1]); ctx.lineTo(b.trail[i], b.trail[i + 1]); ctx.stroke(); } ctx.restore(); }
         ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(Math.atan2(b.vy, b.vx));
@@ -1224,6 +1261,7 @@
     text('KAIKO', W / 2, 52, 34, '#ffb300', 'center');
     text('THE LITTLE SUBMARINE THAT COULD', W / 2, 88, 12, '#cfe3ff', 'center');
     text('CHOOSE YOUR PILOT', W / 2, 130, 12, '#fff', 'center');
+    if (selected === 'pm') text('PERSONALIZED MEDICINE ACTIVE: pick a card to switch back', W / 2, 143, 7, CHARACTERS.pm.color, 'center');
     PILOTS.forEach((key, i) => {
       const c = CHARACTERS[key], cx = 160 + i * 320, sel = selected === key;
       ctx.fillStyle = sel ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.35)'; ctx.fillRect(cx - 150, 150, 300, 295);
