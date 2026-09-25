@@ -148,7 +148,8 @@ does not need to run.
 `drawEnd(false)`:
 
 - the existing dark red overlay;
-- on one line, centred as a whole at `H/2 - 110`:
+- on one line, centred as a whole at `H/2 - 150` (leaves room for the
+  longest drips above the subtitle):
   "THE LITTLE SUBMARINE THAT COULD" at 18 px in `#e8f0ff`, immediately
   followed by "N'T" at 34 px in blood red `#b0101a` with a darker
   `#5a0008` shadow;
