@@ -81,3 +81,20 @@ def test_from_png_bad_frame_width(tmp_path):
     pygame.image.save(surf, str(tmp_path / "odd.png"))
     with pytest.raises(ValueError):
         Sprite.from_png(str(tmp_path / "odd.png"), frame_w=2)
+
+
+def test_from_png_trim_and_height(tmp_path):
+    surf = pygame.Surface((40, 20), pygame.SRCALPHA)
+    pygame.draw.rect(surf, (200, 100, 50, 255), (10, 5, 20, 10))
+    path = tmp_path / "big.png"
+    pygame.image.save(surf, str(path))
+    trimmed = Sprite.from_png(str(path), trim=True)
+    assert (trimmed.width, trimmed.height) == (20, 10)
+    small = Sprite.from_png(str(path), trim=True, height=5)
+    assert (small.width, small.height) == (10, 5)
+    assert small.frames[0].get_at((5, 2)).a > 0
+
+
+def test_from_data_loads_shared_artwork():
+    s = Sprite.from_data("submarine.png", height=20, trim=True)
+    assert s.height == 20 and 30 <= s.width <= 45

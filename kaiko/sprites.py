@@ -8,6 +8,7 @@ from pathlib import Path
 import pygame
 
 TRANSPARENT = "."
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 
 def _hex_to_rgb(color: str) -> tuple[int, int, int]:
@@ -70,9 +71,21 @@ class Sprite:
         return cls(surfaces, fps)
 
     @classmethod
-    def from_png(cls, path: str, frame_w: int | None = None, fps: float = 0) -> "Sprite":
+    def from_png(
+        cls,
+        path: str,
+        frame_w: int | None = None,
+        fps: float = 0,
+        height: int | None = None,
+        trim: bool = False,
+    ) -> "Sprite":
         """Load a horizontal strip. A relative path is resolved next to the
-        file that calls this function."""
+        file that calls this function.
+
+        trim=True crops away fully transparent borders (same crop for every
+        frame). height=N shrinks the frames to N pixels tall, keeping the
+        aspect ratio, so large artwork can be used directly.
+        """
         p = Path(path)
         if not p.is_absolute():
             caller_file = sys._getframe(1).f_globals.get("__file__")
@@ -86,7 +99,18 @@ class Sprite:
         if fw <= 0 or w % fw != 0:
             raise ValueError(f"image width {w} is not a multiple of frame_w {fw}")
         frames = [image.subsurface((i * fw, 0, fw, h)).copy() for i in range(w // fw)]
+        if trim:
+            frames = _trim_frames(frames)
+        if height is not None:
+            frames = _fit_height(frames, height)
         return cls(frames, fps)
+
+    @classmethod
+    def from_data(cls, name: str, **kwargs) -> "Sprite":
+        """Load `data/<name>` from the repo's shared artwork folder.
+        Accepts the same keyword arguments as from_png, e.g.
+        Sprite.from_data("enemy_legal.png", height=32, trim=True)."""
+        return cls.from_png(str(DATA_DIR / name), **kwargs)
 
     def frame_index(self, t: float) -> int:
         if self.fps <= 0 or len(self.frames) == 1:
@@ -105,3 +129,22 @@ class Sprite:
                 s.fill((255, 255, 255, 0), special_flags=pygame.BLEND_RGBA_ADD)
                 self._flash.append(s)
         return self._flash[self.frame_index(t)]
+
+
+def _trim_frames(frames: list[pygame.Surface]) -> list[pygame.Surface]:
+    """Crop all frames to the union of their opaque bounding boxes."""
+    union = None
+    for f in frames:
+        r = f.get_bounding_rect(min_alpha=1)
+        union = r if union is None else union.union(r)
+    if union is None or union.width == 0 or union.height == 0:
+        raise ValueError("image is fully transparent, nothing to trim to")
+    return [f.subsurface(union).copy() for f in frames]
+
+
+def _fit_height(frames: list[pygame.Surface], height: int) -> list[pygame.Surface]:
+    if height <= 0:
+        raise ValueError("height must be positive")
+    w, h = frames[0].get_size()
+    new_w = max(1, round(w * height / h))
+    return [pygame.transform.smoothscale(f, (new_w, height)) for f in frames]

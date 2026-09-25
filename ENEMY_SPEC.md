@@ -135,6 +135,21 @@ sprite = Sprite.from_png("thing.png")                   # one frame
 sprite = Sprite.from_png("thing.png", frame_w=16, fps=6) # 16 px wide frames
 ```
 
+Shared artwork in `data/` (the big generated images, transparent
+background). `trim=True` crops empty borders, `height=N` shrinks to N px
+tall keeping the aspect ratio. Pick the height for the canvas, not the
+file: 24 to 40 px for a regular enemy, up to 64 for a boss.
+
+```python
+sprite = Sprite.from_data("enemy_legal.png", height=32, trim=True)
+```
+
+Available now: `enemy_data`, `enemy_eu`, `enemy_hospitals`, `enemy_legal`,
+`enemy_mdr`, `enemy_other_labs`, `enemy_outage`, `enemy_regulatory`,
+`enemy_scarlet`, `projectile_1` to `projectile_3` (all `.png`). The ship
+uses `submarine.png` the same way. The enemy images are front-facing, so
+they work as-is.
+
 ## Engine rules you should know
 
 - Coordinates are canvas pixels on a 320 by 180 canvas, scaled up to the

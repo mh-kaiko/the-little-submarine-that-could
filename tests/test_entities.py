@@ -14,9 +14,10 @@ class FakeWorld:
         self.shots.append((x, y))
 
 
-def test_kaiko_sprite_shape():
-    assert (KAIKO.width, KAIKO.height) == (24, 12)
-    assert len(KAIKO.frames) == 2
+def test_kaiko_sprite_comes_from_data_artwork():
+    assert KAIKO.height == 20
+    assert 30 <= KAIKO.width <= 45  # submarine.png aspect is about 1.87
+    assert KAIKO.frames[0].get_at((KAIKO.width // 2, KAIKO.height // 2)).a > 0
 
 
 def test_bullet_moves_and_sizes():

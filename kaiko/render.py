@@ -51,7 +51,10 @@ class Renderer:
         self.font = pygame.font.Font(None, 14)
         self.big = pygame.font.Font(None, 26)
         self.background = Background()
-        self._life_icon = pygame.transform.scale(KAIKO.frames[0], (12, 6))
+        icon_h = 6
+        icon_w = max(1, round(KAIKO.width * icon_h / KAIKO.height))
+        self._life_icon = pygame.transform.smoothscale(KAIKO.frames[0], (icon_w, icon_h))
+        self._life_step = icon_w + 2
 
     def _blit_centered(self, surf: pygame.Surface, x: float, y: float) -> None:
         self.canvas.blit(surf, (round(x - surf.get_width() / 2), round(y - surf.get_height() / 2)))
@@ -84,7 +87,7 @@ class Renderer:
             c.set_at((int(pt.x) % WIDTH, int(pt.y) % HEIGHT), pt.color)
         self._text(f"SCORE {world.score:06d}", 4, 3)
         for i in range(p.lives):
-            c.blit(self._life_icon, (WIDTH - 16 - i * 14, 4))
+            c.blit(self._life_icon, (WIDTH - 4 - self._life_step * (i + 1), 4))
         if state == "title":
             self._text("KAIKO", WIDTH // 2, 50, self.big, center=True)
             self._text("solve healthcare", WIDTH // 2, 72, center=True)

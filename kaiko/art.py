@@ -41,4 +41,13 @@ _FRAME_B = [
     ".......kkkkkkkkk........",
 ]
 
-KAIKO = Sprite.from_text([_FRAME_A, _FRAME_B], KAIKO_PALETTE, fps=8)
+KAIKO_PIXEL = Sprite.from_text([_FRAME_A, _FRAME_B], KAIKO_PALETTE, fps=8)
+
+# The real ship artwork lives in data/submarine.png (faces right, transparent
+# background). Shrink it to 20 px tall for the 320x180 canvas. Fall back to
+# the hand-drawn sprite if the file is missing.
+try:
+    KAIKO = Sprite.from_data("submarine.png", height=20, trim=True)
+except Exception as exc:  # noqa: BLE001
+    print(f"[kaiko] data/submarine.png not usable ({exc}); using pixel fallback")
+    KAIKO = KAIKO_PIXEL
