@@ -116,6 +116,7 @@
   const WAVE_TIME = 2.2, WAVE_REACH = 1100; // FUNDRAISE: seconds for the pitch wave to cross the screen
   const SLOWMO_TIME = 0.7, SLOWMO_SCALE = 0.25; // boss kill: real seconds of slow motion and the speed during it
   const LETTERBOX_TIME = 2.5;                   // boss entrance: seconds of cinematic bars
+  const PM_SCROLL = 2.2; // ...and the ocean scrolls this much faster again on top of that
   const PM_SPEED = 2.8; // PERSONALIZED MEDICINE: the whole world runs this much faster, always
   const DEEP_SCALE = 0.3;   // DEEP THOUGHT: world speed while active; Kaiko keeps full speed
   const TOPIC_FIRE = 0.66;  // STAY ON TOPIC: fire cooldown multiplier (about 1.5x the fire rate)
@@ -711,7 +712,7 @@
 
     // depth & zones
     if (!G.boss) G.depth = Math.min(MAX_DEPTH, G.depth + DESCENT_RATE * wdt);
-    G.scrollX += (G.boss ? 40 : SCROLL) * wdt;
+    G.scrollX += (G.boss ? 40 : SCROLL) * wdt * (c.op ? PM_SCROLL : 1);
     const zone = currentZone();
     const zi = ZONES.indexOf(zone);
     if (zi !== G.zoneIdx) {
