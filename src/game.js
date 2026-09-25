@@ -53,13 +53,29 @@
     },
     veerle: {
       key: 'veerle', name: 'VEERLE', title: 'MD', sprite: 'kaiko_dome', portrait: 'veerle', color: '#c08cff',
-      hatch: { x: 0.6, y: 0.28, size: 0.2 },
+      hatch: { x: 0.73, y: 0.3, size: 0.2 }, // right of the periscope, before the front dome
+      gear: { art: 'scalpel', x: 0.5, y: 0.17, px: 1 / 65 }, // mounted under the dome: centre offset and pixel size as fractions of sub width
       width: 65, hitScale: 0.55, speed: 270, funding: 100, tokens: 110, fireRate: 0.19, tokenRegen: 12, bulletDmg: 1,
       blurb: ['The clinical sub.', 'Balanced hull and speed.', 'Keeps everyone on topic.'],
       special: { name: 'STAY ON TOPIC', cost: 30, cooldown: 12, duration: 8, desc: ['8 seconds of free,', 'homing, piercing shots.', 'Nobody wanders off.'] },
     },
   };
   const PILOTS = Object.keys(CHARACTERS); // select-screen order
+
+  // Pixel art drawn in code, pointing right. '.' is transparent.
+  const GEAR = {
+    scalpel: {
+      pal: { k: '#1b2330', g: '#9aa7b8', G: '#6b7788', w: '#f4f8ff', s: '#c9d3e0' },
+      rows: [
+        'kkkkkkkkkkkkkkkkkkkkkkkkk...',
+        'kgggggggggggggggkwwwwwwwwkk.',
+        'kgGgGgGgGgGgGgGgkswwwwwwwwwk',
+        'kGGGGGGGGGGGGGGGksssswwwwkk.',
+        'kkkkkkkkkkkkkkkkkkkssssskk..',
+        '...................kkkkk....',
+      ],
+    },
+  };
 
   const ENEMIES = {
     datadesk:   { sprite: 'datadesk',   w: 36,  hp: 2,  speed: 110, move: 'sine',   amp: 45, freq: 2.0, shoot: 2.6, bullet: 'doc',    score: 100, name: 'Datadesk' },
@@ -84,6 +100,7 @@
   ];
   const MAX_DEPTH = 4000;
   const DESCENT_RATE = 22; // metres per second
+  const WAVE_TIME = 2.2, WAVE_REACH = 1100; // FUNDRAISE: seconds for the pitch wave to cross the screen
   const DEEP_SCALE = 0.3;   // DEEP THOUGHT: world speed while active; Kaiko keeps full speed
   const TOPIC_FIRE = 0.66;  // STAY ON TOPIC: fire cooldown multiplier (about 1.5x the fire rate)
   const HOMING_TURN = 12.6; // rad/s a homing shot can turn (about 720 degrees per second)
@@ -118,6 +135,7 @@
 
   // ------------------------------------------------------------ state
   let TURBO = 1, GOD = false; // debug: ?turbo=n fast-forwards, ?god=1 makes the pilot unhurtable
+  let START_DEPTH = 0; // debug: ?depth=N starts every run (select, R retry, autostart) at N metres
   let state = 'title';
   let selected = 'thomas';
   let keys = {};
@@ -136,7 +154,7 @@
     };
     G.bullets = []; G.ebullets = []; G.enemies = []; G.hazards = []; G.pickups = []; G.beams = [];
     G.particles = []; G.texts = []; G.bubbles = [];
-    G.depth = 0; G.score = 0; G.time = 0; G.kills = 0;
+    G.depth = START_DEPTH; G.score = 0; G.time = 0; G.kills = 0;
     G.spawnT = 1.5; G.hazardT = 6; G.pickupT = 8; G.zoneIdx = -1; G.banner = null;
     G.boss = null; G.bossDefeated = {}; G.scrollX = 0; G.wave = null; G.endAt = 0; G.drips = []; G.winAt = 0; G.confetti = [];
     for (let i = 0; i < 40; i++) G.bubbles.push({ x: rand(0, W), y: rand(0, H), r: rand(1, 4), s: rand(15, 45) });
@@ -158,7 +176,7 @@
     if (state === 'title') {
       if (y > 150 && y < 440) { selected = PILOTS[clamp(Math.floor(x / (W / PILOTS.length)), 0, PILOTS.length - 1)]; Sound.play('select'); }
       if (y >= 450) startGame();
-    } else if (state === 'gameover' || state === 'win') { state = 'title'; }
+    } else if (state === 'gameover' || state === 'win') toTitle();
   });
   function onKey(code) {
     if (code === 'KeyM') { Sound.toggleMute(); return; }
@@ -174,10 +192,11 @@
     } else if (state === 'paused') {
       if (code === 'KeyP' || code === 'Escape' || code === 'Enter') state = 'play';
     } else if (state === 'gameover' || state === 'win') {
-      if (code === 'Enter' || code === 'Space') state = 'title';
+      if (code === 'Enter' || code === 'Space') toTitle();
       if (code === 'KeyR') startGame();
     }
   }
+  function toTitle() { state = 'title'; shake = 0; flash = 0; } // the game-over shake must not follow you to the title
   function startGame() { newGame(selected); state = 'play'; Sound.startMusic(); Sound.play('select'); }
 
   // ------------------------------------------------------------ spawning
@@ -388,6 +407,7 @@
     Sound.play('shoot');
   }
   // Turn a homing shot toward the nearest living enemy it has not hit yet, keeping its speed.
+  function waveRadius(wv) { const k = clamp(wv.t / WAVE_TIME, 0, 1); return WAVE_REACH * (1 - (1 - k) ** 2); } // eases out: a steady, heavy push
   function steer(b, dt) {
     let best = null, bd = Infinity;
     for (const e of G.enemies) { if (e.dead || (b.hitSet && b.hitSet.has(e))) continue; const d = dist2(b.x, b.y, e.x, e.y); if (d < bd) { bd = d; best = e; } }
@@ -404,12 +424,9 @@
     p.tokens -= s.cost; p.specialCd = s.cooldown;
     Sound.play('special');
     if (c.key === 'thomas') {
-      G.wave = { x: p.x, t: 0 };
+      G.wave = { x: p.x, y: p.y, t: 0, hit: new Set() }; // damage lands as the wave front reaches each enemy
       p.funding = Math.min(p.maxFunding, p.funding + 30);
       addText(p.x, p.y - 60, 'FUNDRAISE! +30 funding', '#5cff5c');
-      for (const e of G.enemies) { damageEnemy(e, e.d.boss ? 6 : 3, true); }
-      for (const b of G.blocks) if (b.kind === 'crate' && b.wx - G.scrollX < W) damageBlock(b, 3);
-      for (const b of G.ebullets) b.dead = true;
     } else if (c.key === 'robert') {
       p.deep = s.duration;
       addText(p.x, p.y - 60, 'DEEP THOUGHT...', c.color);
@@ -705,7 +722,14 @@
       if (hitRect(k, p)) { k.dead = true; applyPickup(k.kind); }
     }
     // pitch wave
-    if (G.wave) { G.wave.t += dt; if (G.wave.t > 0.8) G.wave = null; }
+    if (G.wave) {
+      const wv = G.wave; wv.t += dt;
+      const r = waveRadius(wv), r2 = r * r;
+      for (const e of G.enemies) if (!e.dead && !wv.hit.has(e) && dist2(e.x, e.y, wv.x, wv.y) < r2) { wv.hit.add(e); damageEnemy(e, e.d.boss ? 6 : 3, true); burst(e.x, e.y, '#5cff5c', 10, 160); }
+      for (const b of G.ebullets) if (dist2(b.x, b.y, wv.x, wv.y) < r2) b.dead = true;
+      for (const b of G.blocks) if (b.kind === 'crate' && !b.dead && !wv.hit.has(b) && dist2(b.wx - G.scrollX, b.y, wv.x, wv.y) < r2) { wv.hit.add(b); damageBlock(b, 3); }
+      if (wv.t > WAVE_TIME) G.wave = null;
+    }
     // particles / texts / bubbles
     for (const q of G.particles) { q.t += wdt; q.x += q.vx * wdt; q.y += q.vy * wdt; q.vx *= 0.96; q.vy *= 0.96; if (q.t > q.life) q.dead = true; }
     for (const t of G.texts) { t.t += dt; t.y -= 30 * dt; if (t.t > t.life) t.dead = true; }
@@ -770,6 +794,7 @@
     }
     drawPilotHead(p, c);
     drawSprite(c.sprite, p.x, p.y, p.w, p.h, false, p.tilt);
+    drawGear(p, c);
     if (p.opus > 0) { ctx.save(); ctx.globalAlpha = 0.6; text('OPUS 6', p.x, p.y - p.h / 2 - 12, 8, POWERUPS.opus6.color, 'center'); ctx.restore(); }
     if (p.vortex > 0) { ctx.save(); ctx.globalAlpha = 0.7; text('VORTEX 3', p.x, p.y - p.h / 2 - 24, 8, POWERUPS.vortex3.color, 'center'); ctx.restore(); }
   }
@@ -800,6 +825,16 @@
       }
       ctx.restore();
     }
+  }
+  // Pilot-specific gear bolted onto the sub (Veerle's scalpel). Follows the sub's tilt.
+  function drawGear(p, c) {
+    const g = c.gear, art = g && GEAR[g.art];
+    if (!art) return;
+    const px = p.w * g.px, rw = art.rows[0].length * px, rh = art.rows.length * px;
+    ctx.save(); ctx.translate(p.x, p.y); if (p.tilt) ctx.rotate(p.tilt);
+    ctx.translate(g.x * p.w - rw / 2, g.y * p.w - rh / 2);
+    art.rows.forEach((row, j) => { for (let i = 0; i < row.length; i++) if (row[i] !== '.') { ctx.fillStyle = art.pal[row[i]]; ctx.fillRect(i * px, j * px, px + 0.5, px + 0.5); } });
+    ctx.restore();
   }
   function drawEnemies() {
     for (const e of G.enemies) {
@@ -1006,7 +1041,7 @@
     ctx.globalAlpha = 1;
     for (const t of G.texts) { ctx.globalAlpha = clamp(1 - (t.t / t.life - 0.6) / 0.4, 0, 1); text(t.text, t.x, t.y, t.big ? 12 : 9, t.color, 'center'); }
     ctx.globalAlpha = 1;
-    if (G.wave) { const r = G.wave.t / 0.8; ctx.save(); ctx.globalAlpha = 1 - r; ctx.strokeStyle = '#5cff5c'; ctx.lineWidth = 10; ctx.beginPath(); ctx.arc(G.wave.x, G.player.y, r * 1100, -1, 1); ctx.stroke(); ctx.restore(); }
+    if (G.wave) { const wv = G.wave, r = waveRadius(wv), a = 1 - wv.t / WAVE_TIME; ctx.save(); ctx.strokeStyle = '#5cff5c'; ctx.globalAlpha = a; ctx.lineWidth = 14; ctx.beginPath(); ctx.arc(wv.x, wv.y, r, -1.1, 1.1); ctx.stroke(); ctx.globalAlpha = a * 0.35; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(wv.x, wv.y, r * 0.8, -1.1, 1.1); ctx.stroke(); ctx.restore(); }
   }
   function drawHUD() {
     const p = G.player, c = G.char;
@@ -1070,8 +1105,10 @@
       ctx.save(); ctx.beginPath(); ctx.rect(px - ps / 2, py - ps / 2, ps, ps); ctx.clip(); // keep the aspect ratio, crop to the square
       const ph = spriteH(c.portrait, ps); drawSprite(c.portrait, px, py - ps / 2 + ph / 2, ps, ph); ctx.restore();
       ctx.strokeStyle = sel ? c.color : 'rgba(255,255,255,0.25)'; ctx.lineWidth = 3; ctx.strokeRect(px - ps / 2, py - ps / 2, ps, ps);
-      const sw = c.width * 1.4;
-      drawSprite(c.sprite, cx + 70, 222 + Math.sin(elapsed * 2 + (sel ? 0 : 1)) * 5, sw, spriteH(c.sprite, sw));
+      const sw = c.width * 1.4; // table widths are halved for play; show the sub at its old select-screen size
+      const sy = 222 + Math.sin(elapsed * 2 + (sel ? 0 : 1)) * 5;
+      drawSprite(c.sprite, cx + 70, sy, sw, spriteH(c.sprite, sw));
+      drawGear({ x: cx + 70, y: sy, w: sw }, c);
       text(`${c.name} (${c.title})`, cx, 300, 13, c.color, 'center');
       c.blurb.forEach((l, j) => text(l, cx, 322 + j * 14, 8, '#dfe8ff', 'center'));
       text(`FUNDING ${c.funding}  TOKENS ${c.tokens}  SPEED ${c.speed}`, cx, 372, 7, '#9fc3ff', 'center');
@@ -1106,9 +1143,14 @@
       ctx.fillRect(dx - d.w / 2, top, d.w, len);
       ctx.beginPath(); ctx.arc(dx, top + len, d.w * 0.75, 0, 6.283); ctx.fill();
     }
-    text('You ran out of funding before solving healthcare.', W / 2, H / 2 - 15, 10, '#fff', 'center');
-    drawRunStats(H / 2 + 25);
-    drawEndPrompt(H / 2 + 110, 'RETRY');
+    // the cause of death, spelled out: big headline plus an empty funding bar
+    ctx.save(); ctx.globalAlpha = 0.75 + 0.25 * Math.sin(t * 6);
+    text('YOU RAN OUT OF FUNDING', W / 2, H / 2 - 18, 24, '#ffffff', 'center');
+    ctx.restore();
+    bar(W / 2 - 160, H / 2 + 14, 320, 12, 0, '#ff5c5c', 'FUNDING', `0/${G.player.maxFunding}`);
+    text('before you could solve healthcare.', W / 2, H / 2 + 44, 10, '#ffb3b3', 'center');
+    drawRunStats(H / 2 + 72);
+    drawEndPrompt(H / 2 + 135, 'RETRY');
   }
   function drawConfetti() {
     const t = elapsed - G.endAt;
@@ -1126,6 +1168,7 @@
     const sub = { x: W / 2, y: H / 2 - 150 + Math.sin(elapsed * 2) * 6, w: sw, h: sh, tilt: 0 };
     drawPilotHead(sub, c);
     drawSprite(c.sprite, sub.x, sub.y, sw, sh);
+    drawGear(sub, c);
     text('CONGRATULATIONS!', W / 2, H / 2 - 62, 26, '#5cff5c', 'center');
     text("You've solved healthcare.", W / 2, H / 2 - 28, 12, '#fff', 'center');
     text('Kaiko is now deployed in every hospital in the EU,', W / 2, H / 2 - 4, 9, '#dfe8ff', 'center');
@@ -1176,12 +1219,12 @@
   const Q = new URLSearchParams(location.search);
   TURBO = clamp(parseInt(Q.get('turbo') || '1', 10) || 1, 1, 200);
   GOD = !!Q.get('god');
+  START_DEPTH = clamp(parseFloat(Q.get('depth')) || 0, 0, MAX_DEPTH);
   if (Q.get('debug')) window.KAIKO = { G, CHARACTERS, get state() { return state; } };
   loadAssets(() => {
     if (Q.get('autostart')) {
       selected = CHARACTERS[Q.get('pilot')] ? Q.get('pilot') : selected;
       startGame();
-      if (Q.get('depth')) G.depth = clamp(parseFloat(Q.get('depth')) || 0, 0, MAX_DEPTH);
       if (Q.get('autofire')) keys.Space = true;
     }
     requestAnimationFrame(frame);
