@@ -9,7 +9,7 @@
 
   // ------------------------------------------------------------ assets
   const IMG = {};
-  const SPRITES = ['kaiko_sub', 'kaiko_mini', 'datadesk', 'legal', 'hospital', 'research', 'it', 'regulatory', 'gdpr', 'mdr', 'scarlet'];
+  const SPRITES = ['kaiko_sub', 'kaiko_mini', 'robert', 'thomas', 'datadesk', 'legal', 'hospital', 'research', 'it', 'regulatory', 'gdpr', 'mdr', 'scarlet'];
   function loadAssets(done) {
     let left = SPRITES.length + 1;
     const one = () => { if (--left === 0) done(); };
@@ -36,13 +36,15 @@
   // ------------------------------------------------------------ definitions
   const CHARACTERS = {
     robert: {
-      key: 'robert', name: 'ROBERT', title: 'CEO', sprite: 'kaiko_sub', color: '#ffb300',
+      key: 'robert', name: 'ROBERT', title: 'CEO', sprite: 'kaiko_sub', portrait: 'robert', color: '#ffb300',
+      hatch: { x: 0.53, y: 0.225, size: 0.2 }, // where the pilot pokes out: fraction of sprite w/h, head width as fraction of w
       width: 150, hitScale: 0.55, speed: 230, funding: 120, tokens: 100, fireRate: 0.22, tokenRegen: 11, bulletDmg: 1.2,
       blurb: ['The big Kaiko sub.', 'More funding, tougher hull,', 'a bit slower.'],
       special: { name: 'FUNDRAISE', cost: 40, cooldown: 12, desc: ['Pitch wave hits every enemy', 'on screen and converts', '40 tokens into 30 funding.'] },
     },
     thomas: {
-      key: 'thomas', name: 'THOMAS', title: 'CTO', sprite: 'kaiko_mini', color: '#4fd1ff',
+      key: 'thomas', name: 'THOMAS', title: 'CTO', sprite: 'kaiko_mini', portrait: 'thomas', color: '#4fd1ff',
+      hatch: { x: 0.48, y: 0.36, size: 0.26 },
       width: 110, hitScale: 0.55, speed: 310, funding: 85, tokens: 120, fireRate: 0.16, tokenRegen: 14, bulletDmg: 1,
       blurb: ['The nimble scout sub.', 'Faster, cheaper shots,', 'thinner hull.'],
       special: { name: 'HOTFIX', cost: 35, cooldown: 12, desc: ['Invincible for 5 seconds', 'and double fire rate.', 'Ship it.'] },
@@ -81,6 +83,7 @@
     tokens:  { label: 'TOKEN TOP-UP', color: '#6ec6ff', text: '+50 tokens',                     w: 4 },
     deal:    { label: 'INVESTOR DEAL', color: '#ffb347', text: '+45 funding, -40 tokens',       w: 2 },
     credits: { label: 'AZURE CREDITS', color: '#8fb3ff', text: '+70 tokens, -15 funding',       w: 2 },
+    mdrcert: { label: 'MDR CERT',     color: '#ffd700', text: 'MDR CERTIFIED! +25% damage',     w: 0 }, // only dropped by the MDR boss
   };
 
   // Obstacle themes per depth. gap = tunnel height range, slope = max wall rise per px scrolled,
@@ -96,8 +99,12 @@
       wall: '#1e1719', inner: '#110c0e', edge: '#4a3a3c', accent: ['#ff5a1f', '#ffb347'], box: { label: 'LEGACY', hp: 8, score: 120 } },
   ];
 
+  // MDR boss: an audit in stages, keyed to hp. Each threshold ticks a checklist item.
+  const MDR_CHECKS = ['CLINICAL EVIDENCE', 'RISK FILE', 'POST-MARKET'];
+  const MDR_THRESHOLDS = [0.7, 0.4, 0.15];
+
   // ------------------------------------------------------------ state
-  let TURBO = 1;
+  let TURBO = 1, GOD = false; // debug: ?turbo=n fast-forwards, ?god=1 makes the pilot unhurtable
   let state = 'title';
   let selected = 'robert';
   let keys = {};
@@ -114,7 +121,7 @@
       funding: c.funding, maxFunding: c.funding, tokens: c.tokens, maxTokens: c.tokens,
       fireCd: 0, invuln: 0, shield: 0, opus: 0, vortex: 0, hotfix: 0, specialCd: 0, tilt: 0,
     };
-    G.bullets = []; G.ebullets = []; G.enemies = []; G.hazards = []; G.pickups = [];
+    G.bullets = []; G.ebullets = []; G.enemies = []; G.hazards = []; G.pickups = []; G.beams = [];
     G.particles = []; G.texts = []; G.bubbles = [];
     G.depth = 0; G.score = 0; G.time = 0; G.kills = 0;
     G.spawnT = 1.5; G.hazardT = 6; G.pickupT = 8; G.zoneIdx = -1; G.banner = null;
@@ -181,7 +188,7 @@
     else G.hazards.push({ kind, x: W + 90, y: randInGap(W + 90, 70, 40, 80), r: 60, hw: 70, hh: 40, t: 0, vx: -rand(35, 55) });
   }
   function spawnPickup(x, y, kind) {
-    kind = kind || weightedPick(Object.entries(POWERUPS).map(([k, v]) => ({ w: v.w, v: k })));
+    kind = kind || weightedPick(Object.entries(POWERUPS).filter(([, v]) => v.w > 0).map(([k, v]) => ({ w: v.w, v: k })));
     G.pickups.push({ kind, x, y: safeY(x, 16, y ?? randInGap(x, 16, 16, 60), 16), hw: 16, hh: 16, t: 0, vx: -50, vy: 0 });
   }
 
@@ -339,6 +346,7 @@
   function spawnBoss(key) {
     const b = spawnEnemy(key, { x: W + 200, y: H / 2 });
     b.hw = b.w * 0.34; b.hh = b.h * 0.34; b.phase = 0; b.shootT = 1.5; b.entering = true;
+    if (key === 'mdr') { b.stage = 0; b.checks = [false, false, false]; b.gapRow = 3; b.wallT = 0; b.spiral = 0; b.minionT = 8; b.cycle = 0; }
     G.boss = b;
     G.banner = { title: key === 'mdr' ? 'WARNING: MDR AUDIT' : 'FINAL REVIEW: SCARLET', sub: key === 'mdr' ? 'Prove your device is safe.' : 'Get that CE mark.', t: 3.2, boss: true };
     Sound.play('special');
@@ -348,9 +356,10 @@
   function shoot() {
     const p = G.player, c = G.char;
     if (p.fireCd > 0) return;
+    const mult = p.certified ? 1.25 : 1;
     if (p.vortex > 0) {
       p.fireCd = 0.28;
-      G.bullets.push({ x: p.x + p.w * 0.45, y: p.y + 4, vx: 520, vy: 0, r: 22, dmg: 6, pierce: true, kind: 'vortex', t: 0 });
+      G.bullets.push({ x: p.x + p.w * 0.45, y: p.y + 4, vx: 520, vy: 0, r: 22, dmg: 6 * mult, pierce: true, kind: 'vortex', t: 0 });
       Sound.play('vortex'); return;
     }
     const cost = 3;
@@ -358,7 +367,7 @@
     p.tokens -= cost;
     p.fireCd = c.fireRate * (p.hotfix > 0 ? 0.5 : 1);
     const angles = p.opus > 0 ? [-0.22, 0, 0.22] : [0];
-    for (const a of angles) G.bullets.push({ x: p.x + p.w * 0.45, y: p.y + 4, vx: Math.cos(a) * 620, vy: Math.sin(a) * 620, r: 5, dmg: c.bulletDmg, pierce: false, kind: p.opus > 0 ? 'opus' : 'token', t: 0 });
+    for (const a of angles) G.bullets.push({ x: p.x + p.w * 0.45, y: p.y + 4, vx: Math.cos(a) * 620, vy: Math.sin(a) * 620, r: 5, dmg: c.bulletDmg * mult, pierce: false, kind: p.opus > 0 ? 'opus' : 'token', t: 0 });
     Sound.play('shoot');
   }
   function useSpecial() {
@@ -383,6 +392,7 @@
     for (let i = 0; i < n; i++) { const a = rand(0, 6.283), s = rand(speed * 0.3, speed); G.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.4, 0.9), t: 0, color, size: rand(3, 7) }); }
   }
   function damageEnemy(e, dmg, silent) {
+    if (e.type === 'mdr') dmg *= mdrGuard(e); // MDR only takes full damage while distracted by its own paperwork
     e.hp -= dmg; e.flash = 0.08;
     if (!silent) Sound.play('hit');
     if (e.hp <= 0 && !e.dead) {
@@ -393,8 +403,13 @@
       burst(e.x, e.y, '#ff5c5c', e.d.boss ? 60 : 10, e.d.boss ? 300 : 160);
       if (e.d.boss) {
         Sound.play('bigExplode'); shake = 0.8; flash = 0.5;
-        G.bossDefeated[e.type] = true; G.boss = null;
-        for (let i = 0; i < 3; i++) spawnPickup(e.x - 60 + i * 60, e.y, ['funding', 'tokens', 'opus6'][i]);
+        G.bossDefeated[e.type] = true; G.boss = null; G.beams = [];
+        if (e.type === 'mdr') {
+          for (const o of G.enemies) if (!o.d.boss && !o.dead) { o.dead = true; burst(o.x, o.y, '#ffb347', 12, 200); }
+          spawnPickup(e.x - 60, e.y, 'mdrcert'); spawnPickup(e.x + 10, e.y - 50, 'funding'); spawnPickup(e.x + 10, e.y + 50, 'tokens');
+        } else {
+          for (let i = 0; i < 3; i++) spawnPickup(e.x - 60 + i * 60, e.y, ['funding', 'tokens', 'opus6'][i]);
+        }
         if (e.type === 'scarlet') { setTimeout(() => { if (state === 'play') { state = 'win'; Sound.stopMusic(); Sound.play('win'); } }, 1500); }
         else G.banner = { title: 'AUDIT PASSED', sub: 'Descending further...', t: 2.5 };
       } else {
@@ -405,7 +420,7 @@
   }
   function hurtPlayer(amount, reason) {
     const p = G.player;
-    if (p.invuln > 0 || p.shield > 0) return;
+    if (p.invuln > 0 || p.shield > 0 || GOD) return;
     p.funding -= amount; p.invuln = 1.0; shake = Math.max(shake, 0.25); flash = 0.25;
     Sound.play('hurt');
     addText(p.x, p.y - 55, `-${amount} funding` + (reason ? ` (${reason})` : ''), '#ff6b6b');
@@ -422,10 +437,11 @@
       case 'tokens': p.tokens = Math.min(p.maxTokens, p.tokens + 50); break;
       case 'deal': p.funding = Math.min(p.maxFunding, p.funding + 45); p.tokens = Math.max(0, p.tokens - 40); break;
       case 'credits': p.tokens = Math.min(p.maxTokens, p.tokens + 70); p.funding = Math.max(1, p.funding - 15); break;
+      case 'mdrcert': p.certified = true; break;
     }
     G.score += 50;
     addText(p.x, p.y - 60, def.text, def.color, true);
-    Sound.play(k === 'opus6' || k === 'vortex3' || k === 'shield' ? 'powerup' : 'pickup');
+    Sound.play(k === 'opus6' || k === 'vortex3' || k === 'shield' || k === 'mdrcert' ? 'powerup' : 'pickup');
     burst(p.x, p.y, def.color, 16, 160);
   }
 
@@ -449,15 +465,55 @@
     const aim = Math.atan2(p.y - b.y, p.x - b.x);
     const enraged = b.hp < b.maxHp * 0.4;
     b.phase = (b.phase + 1) % 3;
-    if (b.type === 'mdr') {
-      if (b.phase === 0) { for (let i = -3; i <= 3; i++) push(b.x - 80, b.y, Math.PI + i * 0.18, 230, 'alarm', 8); }
-      else if (b.phase === 1) { for (let i = 0; i < (enraged ? 5 : 3); i++) setTimeout(() => { if (G.boss === b && state === 'play') push(b.x - 80, b.y + rand(-60, 60), Math.atan2(p.y - b.y, p.x - b.x), 320, 'para', 7); }, i * 150); }
-      else { for (let i = 0; i < 5; i++) push(b.x - 60, 40 + i * 110, Math.PI, 200, 'doc', 8); }
-    } else { // scarlet
+    if (b.type === 'mdr') return mdrAttack(b, push);
+    { // scarlet
       if (b.phase === 0) { for (let i = -4; i <= 4; i++) push(b.x - 90, b.y, Math.PI + i * 0.16, 260, 'stamp', 9, 14); }
       else if (b.phase === 1) { for (let i = 0; i < (enraged ? 7 : 4); i++) setTimeout(() => { if (G.boss === b && state === 'play') push(b.x - 90, b.y + rand(-80, 80), Math.atan2(p.y - b.y, p.x - b.x) + rand(-0.1, 0.1), 340, 'para', 7); }, i * 120); }
       else { for (let i = 0; i < 8; i++) { const a = Math.PI + (i - 3.5) * 0.28; push(b.x - 60, b.y, a, 180, 'alarm', 9); } if (enraged && Math.random() < 0.5) spawnEnemy('legal', { x: W + 40, y: rand(80, H - 80) }); }
     }
+  }
+  // MDR stages from hp: 0 documentation request, 1 conformity test, 2 non-conformity (enraged), 3 final warning.
+  function mdrThink(b, dt) {
+    const frac = b.hp / b.maxHp;
+    let stage = 0; while (stage < 3 && frac < MDR_THRESHOLDS[stage]) stage++;
+    if (stage !== b.stage) {
+      for (let i = b.stage; i < stage; i++) b.checks[i] = true;
+      addText(b.x - 140, b.y - b.h / 2 - 16, `${MDR_CHECKS[stage - 1]}: REVIEWED`, '#ffe066', true);
+      Sound.play('special'); shake = Math.max(shake, 0.3);
+      if (stage >= 2 && b.stage < 2) {
+        G.banner = { title: 'NON-CONFORMITY FOUND', sub: 'MDR calls in Regulatory. Siren on.', t: 2.5, boss: true };
+        for (let i = 0; i < 2; i++) spawnEnemy('regulatory', { x: W + 60 + i * 90, y: 110 + i * (H - 220) });
+        b.minionT = 8;
+      }
+      b.stage = stage; b.shootT = Math.min(b.shootT, 0.6);
+    }
+    b.wallT -= dt;
+    if (b.stage >= 2) {
+      b.minionT -= dt;
+      if (b.minionT <= 0 && G.enemies.filter(e => !e.d.boss && !e.dead).length < 2) { spawnEnemy('regulatory', { x: W + 60, y: rand(80, H - 80) }); b.minionT = 8; }
+    }
+  }
+  // Damage multiplier: full while a document wall is out, half while scanning, 70% otherwise.
+  function mdrGuard(b) { return b.wallT > 0 ? 1 : G.beams.length ? 0.5 : 0.7; }
+  function mdrAttack(b, push) {
+    const p = G.player;
+    const wall = (gapRows) => { // a wall of documents with a gap that shifts each volley
+      const rows = 9, y0 = 40, dy = (H - 80) / (rows - 1);
+      b.gapRow = clamp(b.gapRow + pick([-2, -1, 1, 2]), 0, rows - gapRows);
+      for (let i = 0; i < rows; i++) if (i < b.gapRow || i >= b.gapRow + gapRows) push(b.x - 70, y0 + i * dy, Math.PI, 260, 'doc', 8);
+      b.wallT = 3.2;
+    };
+    const aimed = (n) => { for (let i = 0; i < n; i++) setTimeout(() => { if (G.boss === b && state === 'play') push(b.x - 80, b.y + rand(-40, 40), Math.atan2(p.y - b.y, p.x - b.x), 320, 'para', 7); }, i * 160); };
+    const fan = (n, spread) => { for (let i = -n; i <= n; i++) push(b.x - 80, b.y, Math.PI + i * spread, 230, 'alarm', 8); };
+    const scan = () => G.beams.push({ x: b.x - 110, w: 26, warm: 0.7, speed: b.stage >= 2 ? 420 : 330, t: 0 });
+    const spiral = () => { b.spiral += 0.45; for (let i = 0; i < 8; i++) push(b.x - 40, b.y, b.spiral + i * Math.PI / 4, 200, 'alarm', 8); };
+    const step = b.cycle++;
+    if (b.stage === 0) { if (step % 2 === 0) { wall(2); return 2.6; } aimed(2); return 1.3; }
+    if (b.stage === 1) { const s = step % 3; if (s === 0) { scan(); return 2.2; } if (s === 1) { fan(3, 0.18); return 1.4; } aimed(3); return 1.4; }
+    const fast = b.stage === 3 ? 0.7 : 0.9, s = step % 4;
+    if (s === 0 || s === 2) { spiral(); return fast; }
+    if (s === 1) { scan(); return 1.6; }
+    wall(1); return 2.2;
   }
 
   // ------------------------------------------------------------ update
@@ -480,6 +536,7 @@
     if (zone.boss && !G.boss && !G.bossDefeated[zone.boss]) spawnBoss(zone.boss);
     const difficulty = clamp(G.depth / MAX_DEPTH, 0, 1);
     Sound.setTempoDepth(difficulty);
+    Sound.setTrack(G.boss ? 'boss' : 'level');
 
     // player movement
     let ax = 0, ay = 0;
@@ -534,7 +591,8 @@
       e.y = clamp(e.y, 30, H - 30);
       if (!d.boss) { const y = keepInGap(e.x, e.hw, e.y, e.hh); if (y !== e.y) { if (d.move === 'zigzag') e.dir = y > e.y ? 1 : -1; e.y = y; } }
       if (d.boss) {
-        if (!e.entering) { e.shootT -= dt; if (e.shootT <= 0) { e.shootT = e.hp < e.maxHp * 0.4 ? 1.1 : 1.6; bossAttack(e); } }
+        if (e.type === 'mdr' && !e.entering) mdrThink(e, dt);
+        if (!e.entering) { e.shootT -= dt; if (e.shootT <= 0) { const next = bossAttack(e); e.shootT = next || (e.hp < e.maxHp * 0.4 ? 1.1 : 1.6); } }
       } else if (d.shoot && e.x < W - 40 && e.x > 60) {
         e.shootT -= dt; if (e.shootT <= 0) { e.shootT = d.shoot * rand(0.8, 1.2) * lerp(1.2, 0.8, difficulty); fireEnemy(e); }
       }
@@ -568,6 +626,17 @@
       if (!b.dead && solidAt(b.x, b.y)) { b.dead = true; burst(b.x, b.y, '#9aa3ad', 3, 80); continue; }
       if (!b.dead && hitRect(b, p)) { b.dead = true; if (p.shield > 0) burst(b.x, b.y, '#ffe066', 5, 100); else hurtPlayer(b.dmg); }
     }
+    // conformity scan beams: telegraph, then sweep left draining tokens
+    for (const bm of G.beams) {
+      bm.t += dt;
+      if (bm.warm > 0) { bm.warm -= dt; continue; }
+      bm.x -= bm.speed * dt;
+      if (bm.x < -bm.w) bm.dead = true;
+      if (Math.abs(bm.x - p.x) < bm.w / 2 + p.hw) {
+        p.tokens = Math.max(0, p.tokens - 45 * dt);
+        if (!bm.said) { bm.said = true; addText(p.x, p.y - 50, 'SCANNED: tokens draining', '#ff9b9b'); Sound.play('denied'); }
+      }
+    }
     // hazards
     for (const h of G.hazards) {
       h.t += dt; h.x += h.vx * dt;
@@ -596,6 +665,7 @@
     G.bullets = G.bullets.filter(b => !b.dead);
     G.ebullets = G.ebullets.filter(b => !b.dead);
     G.hazards = G.hazards.filter(h => !h.dead);
+    G.beams = G.beams.filter(b => !b.dead);
     G.pickups = G.pickups.filter(k => !k.dead);
     G.particles = G.particles.filter(q => !q.dead);
     G.texts = G.texts.filter(t => !t.dead);
@@ -645,13 +715,46 @@
       ctx.save(); ctx.globalAlpha = 0.35 + 0.15 * Math.sin(elapsed * 12); ctx.strokeStyle = '#ffe066'; ctx.lineWidth = 4;
       ctx.beginPath(); ctx.ellipse(p.x, p.y, p.w * 0.6, p.h * 0.75, 0, 0, 6.283); ctx.stroke(); ctx.restore();
     }
+    drawPilotHead(p, c);
     drawSprite(c.sprite, p.x, p.y, p.w, p.h, false, p.tilt);
     if (p.opus > 0) { ctx.save(); ctx.globalAlpha = 0.6; text('OPUS 6', p.x, p.y - p.h / 2 - 12, 8, POWERUPS.opus6.color, 'center'); ctx.restore(); }
     if (p.vortex > 0) { ctx.save(); ctx.globalAlpha = 0.7; text('VORTEX 3', p.x, p.y - p.h / 2 - 24, 8, POWERUPS.vortex3.color, 'center'); ctx.restore(); }
   }
+  // The chosen pilot's portrait, drawn behind the sub and clipped to the hull
+  // line so only the head pokes out of the hatch. Follows the sub's tilt.
+  function drawPilotHead(p, c) {
+    const h = c.hatch, img = IMG[c.portrait];
+    if (!h || !img || !img.naturalWidth) return;
+    const size = p.w * h.size, ph = size * img.naturalHeight / img.naturalWidth;
+    const lx = (h.x - 0.5) * p.w, ly = (h.y - 0.5) * p.h; // hatch point relative to sub centre
+    const bob = Math.sin(elapsed * 5) * size * 0.04;
+    ctx.save(); ctx.translate(p.x, p.y); if (p.tilt) ctx.rotate(p.tilt);
+    ctx.beginPath(); ctx.rect(lx - size, ly - size * 2, size * 2, size * 2 + size * 0.1); ctx.clip();
+    ctx.drawImage(img, lx - size / 2, ly - ph * 0.74 + bob, size, ph);
+    ctx.restore();
+  }
+  function drawBeams() {
+    for (const bm of G.beams) {
+      ctx.save();
+      if (bm.warm > 0) {
+        ctx.globalAlpha = 0.5 + 0.5 * Math.sin(bm.t * 30); ctx.fillStyle = '#ff3b3b'; ctx.fillRect(bm.x - 1, 46, 2, H - 46);
+        text('CONFORMITY SCAN', bm.x, 66, 8, '#ff9b9b', 'center');
+      } else {
+        const g = ctx.createLinearGradient(bm.x - bm.w, 0, bm.x + bm.w, 0);
+        g.addColorStop(0, 'rgba(255,60,60,0)'); g.addColorStop(0.5, 'rgba(255,80,80,0.55)'); g.addColorStop(1, 'rgba(255,60,60,0)');
+        ctx.fillStyle = g; ctx.fillRect(bm.x - bm.w, 46, bm.w * 2, H - 46);
+        ctx.fillStyle = 'rgba(255,230,230,0.9)'; ctx.fillRect(bm.x - 1.5, 46, 3, H - 46);
+      }
+      ctx.restore();
+    }
+  }
   function drawEnemies() {
     for (const e of G.enemies) {
       const bob = e.d.boss ? 0 : Math.sin(e.t * 3) * 3;
+      if (e.type === 'mdr' && e.stage >= 2) { // siren glow once non-conformity is found
+        ctx.save(); ctx.globalAlpha = Math.floor(e.t * 6) % 2 === 0 ? 0.55 : 0.2; ctx.fillStyle = '#ff2020';
+        ctx.beginPath(); ctx.arc(e.x + e.w * 0.02, e.y - e.h * 0.4, e.stage === 3 ? 36 : 26, 0, 6.283); ctx.fill(); ctx.restore();
+      }
       ctx.save();
       if (e.flash > 0) ctx.filter = 'brightness(3)';
       drawSprite(e.d.sprite, e.x, e.y + bob, e.w, e.h, false, e.d.move === 'chase' ? Math.sin(e.t * 4) * 0.08 : 0);
@@ -823,7 +926,7 @@
       ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-16, -16, 32, 32);
       ctx.fillStyle = def.color; ctx.fillRect(-13, -13, 26, 26);
       ctx.fillStyle = '#fff'; ctx.globalAlpha = 0.5 + 0.5 * Math.sin(k.t * 8); ctx.fillRect(-13, -13, 26, 4); ctx.globalAlpha = 1;
-      const glyph = { opus6: 'O6', vortex3: 'V3', shield: '+', funding: '$', tokens: 'T', deal: '$?', credits: 'AZ' }[k.kind];
+      const glyph = { opus6: 'O6', vortex3: 'V3', shield: '+', funding: '$', tokens: 'T', deal: '$?', credits: 'AZ', mdrcert: 'CE' }[k.kind];
       text(glyph, 0, 1, 10, '#0b1020', 'center', false);
       text(def.label, 0, 26, 7, def.color, 'center');
       ctx.restore();
@@ -850,6 +953,7 @@
     let bx = 16, by = 60;
     const buffs = [['OPUS 6', p.opus, POWERUPS.opus6.color], ['VORTEX 3', p.vortex, POWERUPS.vortex3.color], ['INVINCIBLE', p.shield, POWERUPS.shield.color], ['HOTFIX', p.hotfix, '#4fd1ff']];
     for (const [n, t, col] of buffs) if (t > 0) { text(`${n} ${Math.ceil(t)}s`, bx, by, 8, col, 'left'); by += 14; }
+    if (p.certified) { text('MDR CERTIFIED +25% DMG', bx, by, 8, POWERUPS.mdrcert.color, 'left'); by += 14; }
     // depth gauge on the right
     const gx = W - 14, gy = 60, gh = H - 120;
     ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(gx - 4, gy, 8, gh);
@@ -861,6 +965,12 @@
       ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(W / 2 - 202, H - 62, 404, 20);
       ctx.fillStyle = '#ff3b3b'; ctx.fillRect(W / 2 - 200, H - 60, 400 * Math.max(0, b.hp) / b.maxHp, 16);
       text(`${b.d.name}`, W / 2, H - 52, 9, '#fff', 'center');
+      if (b.type === 'mdr') { // audit checklist and current damage guard
+        ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(W / 2 - 360, 50, 720, 40);
+        MDR_CHECKS.forEach((n, i) => { const done = b.checks[i]; text(`[${done ? 'X' : ' '}] ${n}`, W / 2 + (i - 1) * 230, 62, 7, done ? '#5cff5c' : '#cfe3ff', 'center'); });
+        const g = mdrGuard(b);
+        text(g >= 1 ? 'DISTRACTED BY PAPERWORK: FULL DAMAGE' : g <= 0.5 ? 'REVIEWING: HALF DAMAGE' : 'GUARDED: 70% DAMAGE', W / 2, 80, 7, g >= 1 ? '#5cff5c' : g <= 0.5 ? '#ff5c5c' : '#ffe066', 'center');
+      }
     }
     // banner
     if (G.banner) {
@@ -885,7 +995,13 @@
       const c = CHARACTERS[key], cx = i === '0' ? W / 4 : 3 * W / 4, sel = selected === key;
       ctx.fillStyle = sel ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.35)'; ctx.fillRect(cx - 200, 150, 400, 295);
       if (sel) { ctx.strokeStyle = c.color; ctx.lineWidth = 4; ctx.strokeRect(cx - 200, 150, 400, 295); }
-      drawSprite(c.sprite, cx, 225 + Math.sin(elapsed * 2 + (sel ? 0 : 1)) * 5, c.width * 1.1, spriteH(c.sprite, c.width * 1.1));
+      // pilot portrait (pixel-art headshot) on the left, their sub on the right
+      const px = cx - 110, py = 222, ps = 124;
+      ctx.fillStyle = '#0a1a4a'; ctx.fillRect(px - ps / 2, py - ps / 2, ps, ps);
+      drawSprite(c.portrait, px, py, ps, ps);
+      ctx.strokeStyle = sel ? c.color : 'rgba(255,255,255,0.25)'; ctx.lineWidth = 3; ctx.strokeRect(px - ps / 2, py - ps / 2, ps, ps);
+      const sw = c.width * 0.85;
+      drawSprite(c.sprite, cx + 75, 222 + Math.sin(elapsed * 2 + (sel ? 0 : 1)) * 5, sw, spriteH(c.sprite, sw));
       text(`${c.name} (${c.title})`, cx, 300, 13, c.color, 'center');
       c.blurb.forEach((l, j) => text(l, cx, 322 + j * 14, 8, '#dfe8ff', 'center'));
       text(`FUNDING ${c.funding}  TOKENS ${c.tokens}  SPEED ${c.speed}`, cx, 372, 7, '#9fc3ff', 'center');
@@ -914,6 +1030,7 @@
     drawBubbles();
     drawTerrain();
     drawHazards();
+    drawBeams();
     drawEnemies();
     drawDarkness();
     drawVents();
@@ -937,9 +1054,10 @@
   }
   ctx.fillStyle = '#0a1a4a'; ctx.fillRect(0, 0, W, H);
   text('LOADING...', W / 2, H / 2, 14, '#fff', 'center');
-  // Debug/testing hooks: ?pilot=robert|thomas&autostart=1&depth=2600&autofire=1&turbo=30
+  // Debug/testing hooks: ?pilot=robert|thomas&autostart=1&depth=2600&autofire=1&turbo=30&god=1
   const Q = new URLSearchParams(location.search);
   TURBO = clamp(parseInt(Q.get('turbo') || '1', 10) || 1, 1, 200);
+  GOD = !!Q.get('god');
   loadAssets(() => {
     if (Q.get('autostart')) {
       selected = CHARACTERS[Q.get('pilot')] ? Q.get('pilot') : selected;

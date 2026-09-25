@@ -1,8 +1,8 @@
-// Synthesised audio: an original 3/4 "underwater waltz" loop + chiptune sound effects.
+// Synthesised audio: original chiptune level + boss loops and chiptune sound effects.
 // Everything is generated with WebAudio, no audio files needed.
 const Sound = (() => {
   let ctx = null, master = null, musicGain = null, sfxGain = null;
-  let muted = false, musicOn = false, schedTimer = null, nextNoteTime = 0, step = 0;
+  let muted = false, musicOn = false, buffers = null, current = null;
 
   const midi = (n) => 440 * Math.pow(2, (n - 69) / 12);
 
@@ -13,23 +13,163 @@ const Sound = (() => {
     master = ctx.createGain(); master.gain.value = 0.6; master.connect(ctx.destination);
     musicGain = ctx.createGain(); musicGain.gain.value = 0.32; musicGain.connect(master);
     sfxGain = ctx.createGain(); sfxGain.gain.value = 0.5; sfxGain.connect(master);
+    buffers = { level: renderTrack(TRACKS.level), boss: renderTrack(TRACKS.boss) };
   }
   function resume() { if (ctx && ctx.state === 'suspended') ctx.resume(); }
 
   // ---------------- music ----------------
-  // 3/4 time, 6 eighth-note steps per bar. Chord roots per bar (MIDI), melody per eighth step (MIDI or 0 for rest).
-  const BPM = 150;
-  const CHORDS = [ // [root, third, fifth] per bar, 16 bars
-    [48,52,55],[48,52,55],[53,57,60],[53,57,60],[55,59,62],[55,59,62],[48,52,55],[48,52,55],
-    [45,48,52],[45,48,52],[53,57,60],[53,57,60],[55,59,62],[55,59,62],[48,52,55],[48,52,55],
-  ];
-  const MELODY = [
-    72,0,76,0,79,0,   76,0,79,0,84,0,   81,0,79,0,77,0,   76,0,77,0,79,0,
-    79,0,77,0,74,0,   71,0,74,0,79,0,   76,0,74,0,72,0,   72,0,0,0,0,0,
-    69,0,72,0,76,0,   72,0,76,0,81,0,   77,0,76,0,74,0,   72,0,74,0,77,0,
-    79,0,77,0,74,0,   71,0,74,0,79,0,   72,0,0,0,76,0,   72,0,0,0,0,0,
-  ];
-  const stepDur = () => 60 / BPM / 2; // eighth note
+  // Two original loops in a dark castle-fight mood: 'level' for normal play, 'boss'
+  // while a boss is on screen. Each is rendered once into a looping AudioBuffer.
+  // chords: one per bar, root + quality (m/M). lead: one string per bar, note/beats.
+  // bass: semitone offsets per eighth. arp: indices into (root, 3rd, 5th, octave).
+  // drums: 16th-note grids; fill replaces the snare on every 8th bar.
+  const TRACKS = {
+    level: {
+      bpm: 144,
+      chords: 'Cm Cm AbM BbM Cm Cm DbM GM Fm Fm Cm Cm AbM BbM DbM GM',
+      lead: [
+        'C5/1 C5/.5 Eb5/.5 G5/1 F5/.5 Eb5/.5',
+        'D5/.5 Eb5/.5 D5/.5 C5/.5 B4/1 G4/1',
+        'Ab4/1 C5/.5 Eb5/.5 Ab5/1.5 G5/.5',
+        'F5/1 D5/1 Bb4/1 D5/1',
+        'C5/.5 G4/.5 C5/.5 Eb5/.5 G5/1 C6/1',
+        'B5/.5 C6/.5 G5/1 Eb5/1 C5/1',
+        'Db5/1 F5/1 Ab5/1 Db6/1',
+        'B5/1.5 Ab5/.5 G5/1 F5/.5 D5/.5',
+        'F5/1.5 Ab5/.5 C6/1 Ab5/1',
+        'G5/.5 F5/.5 Eb5/.5 F5/.5 C5/2',
+        'Eb5/1 G5/1 C6/.5 Bb5/.5 G5/1',
+        'Eb5/1 D5/.5 C5/.5 D5/2',
+        'C5/.5 Eb5/.5 Ab5/1 G5/.5 Ab5/.5 C6/1',
+        'D6/1.5 C6/.5 Bb5/1 F5/1',
+        'F5/.5 Ab5/.5 Db6/1 C6/.5 Db6/.5 F6/1',
+        'D6/1 B5/1 G5/1 B4/1',
+      ],
+      bass: [0, 0, 12, 0, 0, 12, 0, 7],
+      arpStep: 0.5,
+      arp: [0, 1, 2, 1],
+      kick: 'x.....x.x.......',
+      snare: '....x.......x...',
+      hat: 'x.x.x.x.x.x.x.x.',
+      fill: '....x...x.x.xxxx',
+    },
+    boss: {
+      bpm: 176,
+      chords: 'Cm Cm GbM GbM Cm Cm AbM GM Cm DbM Cm DbM AbM GbM FM GM',
+      lead: [
+        'C5/.5 C5/.5 C5/.5 Eb5/.5 D5/.5 C5/.5 B4/1',
+        'C5/.5 G5/.5 F#5/.5 G5/.5 Eb5/1 C5/1',
+        'Gb5/1 Bb5/.5 Db6/.5 C6/.5 Bb5/.5 Gb5/1',
+        'F5/.5 Gb5/.5 F5/.5 Eb5/.5 Db5/1 Bb4/1',
+        'C6/.5 B5/.5 C6/.5 G5/.5 Eb5/.5 G5/.5 C5/1',
+        'Eb5/.5 F5/.5 F#5/.5 G5/.5 Bb5/.5 B5/.5 C6/1',
+        'C6/1 Ab5/1 Eb5/1 C5/1',
+        'D5/.5 F5/.5 Ab5/.5 B5/.5 D6/1 B5/1',
+        'G5/1.5 Eb5/.5 C5/1 G4/1',
+        'Ab5/1.5 F5/.5 Db5/1 Ab4/1',
+        'G5/.5 Ab5/.5 G5/.5 F5/.5 Eb5/.5 D5/.5 C5/1',
+        'Db5/.5 F5/.5 Ab5/.5 Db6/.5 C6/1 Ab5/1',
+        'Eb6/1 C6/.5 Ab5/.5 Eb6/1 C6/1',
+        'Db6/1 Bb5/.5 Gb5/.5 Db6/1 Bb5/1',
+        'C6/.5 A5/.5 F5/.5 A5/.5 C6/.5 Eb6/.5 D6/1',
+        'B5/.5 D6/.5 F6/.5 Ab6/.5 G6/2',
+      ],
+      bass: [0, 12, 0, 12, 0, 12, 0, 12],
+      arpStep: 0.25,
+      arp: [0, 1, 2, 3, 2, 1],
+      kick: 'x...x...x...x.x.',
+      snare: '....x.......x...',
+      hat: 'xxxxxxxxxxxxxxxx',
+      fill: '....x...xxxxxxxx',
+    },
+  };
+  const NOTE = { C: 0, 'C#': 1, Db: 1, D: 2, 'D#': 3, Eb: 3, E: 4, F: 5, 'F#': 6, Gb: 6, G: 7, 'G#': 8, Ab: 8, A: 9, 'A#': 10, Bb: 10, B: 11 };
+  const TRIADS = { m: [0, 3, 7], M: [0, 4, 7] };
+  const RATE = 22050;
+  const FADE = 0.6;
+  const noteNum = (name) => 12 * (Number(name.slice(-1)) + 1) + NOTE[name.slice(0, -1)];
+  const pulse = (duty) => (ph) => (ph % 1 < duty ? 1 : -1);
+
+  function renderTrack(spec) {
+    const beat = 60 / spec.bpm, chords = spec.chords.split(' ');
+    const buf = new Float32Array(Math.round(chords.length * 4 * beat * RATE));
+    // tails past the end wrap to the start, so the loop point is seamless
+    const add = (i, v) => { buf[i % buf.length] += v; };
+    function note(t0, dur, freq, gain, shape, gate, vibrato) {
+      const i0 = Math.round(t0 * RATE), n = Math.floor(dur * gate * RATE);
+      const attack = 0.003 * RATE, release = 0.012 * RATE, vibDelay = 0.15 * RATE;
+      let ph = 0;
+      for (let k = 0; k < n; k++) {
+        add(i0 + k, gain * Math.min(1, k / attack, (n - k) / release) * shape(ph));
+        const wobble = vibrato && k > vibDelay ? 0.006 * Math.sin(2 * Math.PI * 6 * k / RATE) : 0;
+        ph += freq * (1 + wobble) / RATE;
+      }
+    }
+    function kick(t0, gain) {
+      const i0 = Math.round(t0 * RATE);
+      let ph = 0;
+      for (let k = 0; k < 0.14 * RATE; k++) {
+        const t = k / RATE;
+        ph += (45 + 110 * Math.exp(-t * 30)) / RATE;
+        add(i0 + k, gain * Math.exp(-t * 22) * Math.sin(2 * Math.PI * ph));
+      }
+    }
+    function noise(t0, gain, secs, decay, highpass, bodyHz) {
+      const i0 = Math.round(t0 * RATE);
+      let prev = 0;
+      for (let k = 0; k < secs * RATE; k++) {
+        const t = k / RATE, x = Math.random() * 2 - 1;
+        let s = highpass ? x - prev : x;
+        prev = x;
+        if (bodyHz) s = 0.7 * s + 0.5 * Math.sin(2 * Math.PI * bodyHz * t);
+        add(i0 + k, gain * Math.exp(-t * decay) * s);
+      }
+    }
+
+    const lead = pulse(0.25), bass = pulse(0.5), arp = pulse(0.125);
+    const hatGain = spec.hat.split('x').length - 1 <= 8 ? 0.05 : 0.035;
+    chords.forEach((chord, bar) => {
+      const barT = bar * 4 * beat;
+      let t = barT;
+      for (const token of spec.lead[bar].split(' ')) {
+        const [name, beats] = token.split('/');
+        const dur = Number(beats) * beat;
+        note(t, dur, midi(noteNum(name)), 0.22, lead, 0.92, dur >= beat);
+        t += dur;
+      }
+      if (Math.abs(t - barT - 4 * beat) > 1e-9) throw new Error(`lead bar ${bar + 1} is not 4 beats`);
+
+      const root = NOTE[chord.slice(0, -1)];
+      spec.bass.forEach((off, i) => note(barT + i * beat / 2, beat / 2, midi(36 + root + off), 0.2, bass, 0.8, false));
+      const [, third, fifth] = TRIADS[chord.slice(-1)];
+      const tones = [60 + root, 60 + root + third, 60 + root + fifth, 72 + root];
+      const step = spec.arpStep * beat;
+      for (let i = 0; i < Math.round(4 / spec.arpStep); i++) {
+        note(barT + i * step, step, midi(tones[spec.arp[i % spec.arp.length]]), 0.06, arp, 0.6, false);
+      }
+
+      const snare = bar % 8 === 7 ? spec.fill : spec.snare;
+      for (let i = 0; i < 16; i++) {
+        const at = barT + i * beat / 4;
+        if (spec.kick[i] === 'x') kick(at, 0.55);
+        if (snare[i] === 'x') noise(at, 0.22, 0.14, 25, false, 190);
+        if (spec.hat[i] === 'x') noise(at, hatGain, 0.03, 120, true, 0);
+      }
+    });
+
+    // gentle low-pass, soft clip, normalise
+    const a = 1 - Math.exp(-2 * Math.PI * 7000 / RATE);
+    let y = 0, peak = 0;
+    for (let i = 0; i < buf.length; i++) {
+      y += a * (buf[i] - y);
+      buf[i] = Math.tanh(1.2 * y);
+      peak = Math.max(peak, Math.abs(buf[i]));
+    }
+    const out = ctx.createBuffer(1, buf.length, RATE);
+    const data = out.getChannelData(0), scale = 0.89 / (peak || 1);
+    for (let i = 0; i < buf.length; i++) data[i] = buf[i] * scale;
+    return out;
+  }
 
   function tone(freq, t, dur, type, gain, dest) {
     const o = ctx.createOscillator(); const g = ctx.createGain();
@@ -42,52 +182,31 @@ const Sound = (() => {
     return o;
   }
 
-  function scheduleStep(s, t) {
-    const bar = Math.floor(s / 6) % CHORDS.length;
-    const inBar = s % 6;
-    const chord = CHORDS[bar];
-    const d = stepDur();
-    // oom-pah-pah bass: root on beat 1, chord stabs on beats 2 and 3
-    if (inBar === 0) tone(midi(chord[0] - 12), t, d * 1.6, 'triangle', 0.5, musicGain);
-    else if (inBar === 2 || inBar === 4) {
-      chord.forEach(n => tone(midi(n), t, d * 0.9, 'square', 0.06, musicGain));
-    }
-    // bubbly hi-hat tick
-    const noise = ctx.createBufferSource();
-    const buf = ctx.createBuffer(1, ctx.sampleRate * 0.03, ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
-    noise.buffer = buf; const ng = ctx.createGain(); ng.gain.value = inBar === 0 ? 0.12 : 0.05;
-    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 6000;
-    noise.connect(hp); hp.connect(ng); ng.connect(musicGain); noise.start(t);
-    // lead
-    const m = MELODY[s % MELODY.length];
-    if (m) {
-      const o = tone(midi(m), t, d * 1.8, 'triangle', 0.35, musicGain);
-      // gentle vibrato for the underwater wobble
-      const lfo = ctx.createOscillator(); const lg = ctx.createGain();
-      lfo.frequency.value = 5.5; lg.gain.value = 4; lfo.connect(lg); lg.connect(o.frequency);
-      lfo.start(t); lfo.stop(t + d * 2);
-    }
+  function fadeOut(track) {
+    const t = ctx.currentTime, g = track.gain.gain;
+    g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(0, t + FADE);
+    track.src.stop(t + FADE + 0.05);
   }
-
-  function scheduler() {
-    while (nextNoteTime < ctx.currentTime + 0.2) {
-      scheduleStep(step, nextNoteTime);
-      nextNoteTime += stepDur();
-      step++;
-    }
+  // Crossfades to the named loop; a no-op when it is already playing or music is off.
+  function setTrack(name) {
+    if (!musicOn || (current && current.name === name)) return;
+    if (current) fadeOut(current);
+    const t = ctx.currentTime;
+    const src = ctx.createBufferSource(); src.buffer = buffers[name]; src.loop = true;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0, t); gain.gain.linearRampToValueAtTime(1, t + FADE);
+    src.connect(gain); gain.connect(musicGain); src.start(t);
+    current = { name, src, gain };
   }
-
   function startMusic() {
     init(); resume();
     if (musicOn) return;
-    musicOn = true; step = 0; nextNoteTime = ctx.currentTime + 0.05;
-    schedTimer = setInterval(scheduler, 50);
+    musicOn = true;
+    setTrack('level');
   }
   function stopMusic() {
     musicOn = false;
-    if (schedTimer) { clearInterval(schedTimer); schedTimer = null; }
+    if (current) { fadeOut(current); current = null; }
   }
   function setTempoDepth(frac) {
     // deeper = darker: pull the music volume down slightly and low-pass it
@@ -125,5 +244,5 @@ const Sound = (() => {
 
   function toggleMute() { init(); muted = !muted; master.gain.value = muted ? 0 : 0.6; return muted; }
 
-  return { init, resume, startMusic, stopMusic, setTempoDepth, play, toggleMute, isMuted: () => muted };
+  return { init, resume, startMusic, stopMusic, setTrack, setTempoDepth, play, toggleMute, isMuted: () => muted };
 })();

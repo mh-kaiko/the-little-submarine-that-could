@@ -72,7 +72,19 @@ def split_sheet(name, labels, tol, label_top):
         print(f'{label:12s} {sprite.shape[1]}x{sprite.shape[0]}')
 
 
+def portrait(name, tol=24, width=256):
+    """Pilot portrait: key out the flat background, crop, shrink for the web."""
+    arr = crop_to_content(transparentize(name, tol), pad=0)
+    im = Image.fromarray(arr)
+    h = round(im.height * width / im.width)
+    im = im.resize((width, h), Image.LANCZOS)
+    im.save(f'{OUT}/{name}.png')
+    print(f'{name:12s} {width}x{h}')
+
+
 if __name__ == '__main__':
+    portrait('robert')
+    portrait('thomas')
     sub = crop_to_content(transparentize('submarine', tol=14))
     Image.fromarray(sub).save(f'{OUT}/kaiko_sub.png')
     print(f'kaiko_sub    {sub.shape[1]}x{sub.shape[0]}')
