@@ -37,12 +37,14 @@
   const CHARACTERS = {
     robert: {
       key: 'robert', name: 'ROBERT', title: 'CEO', sprite: 'kaiko_sub', portrait: 'robert', color: '#ffb300',
+      hatch: { x: 0.53, y: 0.225, size: 0.2 }, // where the pilot pokes out: fraction of sprite w/h, head width as fraction of w
       width: 150, hitScale: 0.55, speed: 230, funding: 120, tokens: 100, fireRate: 0.22, tokenRegen: 11, bulletDmg: 1.2,
       blurb: ['The big Kaiko sub.', 'More funding, tougher hull,', 'a bit slower.'],
       special: { name: 'FUNDRAISE', cost: 40, cooldown: 12, desc: ['Pitch wave hits every enemy', 'on screen and converts', '40 tokens into 30 funding.'] },
     },
     thomas: {
       key: 'thomas', name: 'THOMAS', title: 'CTO', sprite: 'kaiko_mini', portrait: 'thomas', color: '#4fd1ff',
+      hatch: { x: 0.48, y: 0.36, size: 0.26 },
       width: 110, hitScale: 0.55, speed: 310, funding: 85, tokens: 120, fireRate: 0.16, tokenRegen: 14, bulletDmg: 1,
       blurb: ['The nimble scout sub.', 'Faster, cheaper shots,', 'thinner hull.'],
       special: { name: 'HOTFIX', cost: 35, cooldown: 12, desc: ['Invincible for 5 seconds', 'and double fire rate.', 'Ship it.'] },
@@ -468,9 +470,23 @@
       ctx.save(); ctx.globalAlpha = 0.35 + 0.15 * Math.sin(elapsed * 12); ctx.strokeStyle = '#ffe066'; ctx.lineWidth = 4;
       ctx.beginPath(); ctx.ellipse(p.x, p.y, p.w * 0.6, p.h * 0.75, 0, 0, 6.283); ctx.stroke(); ctx.restore();
     }
+    drawPilotHead(p, c);
     drawSprite(c.sprite, p.x, p.y, p.w, p.h, false, p.tilt);
     if (p.opus > 0) { ctx.save(); ctx.globalAlpha = 0.6; text('OPUS 6', p.x, p.y - p.h / 2 - 12, 8, POWERUPS.opus6.color, 'center'); ctx.restore(); }
     if (p.vortex > 0) { ctx.save(); ctx.globalAlpha = 0.7; text('VORTEX 3', p.x, p.y - p.h / 2 - 24, 8, POWERUPS.vortex3.color, 'center'); ctx.restore(); }
+  }
+  // The chosen pilot's portrait, drawn behind the sub and clipped to the hull
+  // line so only the head pokes out of the hatch. Follows the sub's tilt.
+  function drawPilotHead(p, c) {
+    const h = c.hatch, img = IMG[c.portrait];
+    if (!h || !img || !img.naturalWidth) return;
+    const size = p.w * h.size, ph = size * img.naturalHeight / img.naturalWidth;
+    const lx = (h.x - 0.5) * p.w, ly = (h.y - 0.5) * p.h; // hatch point relative to sub centre
+    const bob = Math.sin(elapsed * 5) * size * 0.04;
+    ctx.save(); ctx.translate(p.x, p.y); if (p.tilt) ctx.rotate(p.tilt);
+    ctx.beginPath(); ctx.rect(lx - size, ly - size * 2, size * 2, size * 2 + size * 0.1); ctx.clip();
+    ctx.drawImage(img, lx - size / 2, ly - ph * 0.74 + bob, size, ph);
+    ctx.restore();
   }
   function drawEnemies() {
     for (const e of G.enemies) {
