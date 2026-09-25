@@ -1093,9 +1093,14 @@
       ctx.fillRect(dx - d.w / 2, top, d.w, len);
       ctx.beginPath(); ctx.arc(dx, top + len, d.w * 0.75, 0, 6.283); ctx.fill();
     }
-    text('You ran out of funding before solving healthcare.', W / 2, H / 2 - 15, 10, '#fff', 'center');
-    drawRunStats(H / 2 + 25);
-    drawEndPrompt(H / 2 + 110, 'RETRY');
+    // the cause of death, spelled out: big headline plus an empty funding bar
+    ctx.save(); ctx.globalAlpha = 0.75 + 0.25 * Math.sin(t * 6);
+    text('YOU RAN OUT OF FUNDING', W / 2, H / 2 - 18, 24, '#ffffff', 'center');
+    ctx.restore();
+    bar(W / 2 - 160, H / 2 + 14, 320, 12, 0, '#ff5c5c', 'FUNDING', `0/${G.player.maxFunding}`);
+    text('before you could solve healthcare.', W / 2, H / 2 + 44, 10, '#ffb3b3', 'center');
+    drawRunStats(H / 2 + 72);
+    drawEndPrompt(H / 2 + 135, 'RETRY');
   }
   function drawConfetti() {
     const t = elapsed - G.endAt;
