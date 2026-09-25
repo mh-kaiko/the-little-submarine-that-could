@@ -9,11 +9,13 @@
 
   // ------------------------------------------------------------ assets
   const IMG = {};
-  const SPRITES = ['kaiko_sub', 'kaiko_mini', 'kaiko_dome', 'robert', 'thomas', 'veerle', 'datadesk', 'legal', 'hospital', 'research', 'it', 'regulatory', 'gdpr', 'mdr', 'scarlet', 'cancer', 'cancer_cell'];
+  const SPRITES = ['kaiko_sub', 'kaiko_mini', 'kaiko_dome', 'robert', 'thomas', 'veerle', 'datadesk', 'legal', 'hospital', 'research', 'it', 'regulatory', 'gdpr', 'mdr', 'scarlet', 'cancer', 'cancer_cell', 'tech_debt'];
   function loadAssets(done) {
-    let left = SPRITES.length + 1;
+    // Pickup art is optional: assets/sprites/pickup_<kind>.png replaces the coloured box when present.
+    const names = SPRITES.concat(Object.keys(POWERUPS).map(k => `pickup_${k}`));
+    let left = names.length + 1;
     const one = () => { if (--left === 0) done(); };
-    SPRITES.forEach(n => { const i = new Image(); i.onload = one; i.onerror = one; i.src = `assets/sprites/${n}.png`; IMG[n] = i; });
+    names.forEach(n => { const i = new Image(); i.onload = one; i.onerror = one; i.src = `assets/sprites/${n}.png`; IMG[n] = i; });
     const o = new Image(); o.onload = one; o.onerror = one; o.src = 'assets/raw/ocean.png'; IMG.ocean = o;
   }
   const spriteH = (name, w) => { const i = IMG[name]; return i && i.naturalWidth ? w * i.naturalHeight / i.naturalWidth : w * 0.8; };
@@ -1261,7 +1263,11 @@
   function drawHazards() {
     for (const h of G.hazards) {
       ctx.save(); ctx.translate(h.x, h.y);
-      if (h.kind === 'mine') {
+      if (h.kind === 'mine' && IMG.tech_debt.naturalWidth) {
+        const s = h.r * 2.6; // the art's glow and spikes reach past the hitbox
+        ctx.rotate(h.t * 0.6); ctx.drawImage(IMG.tech_debt, -s / 2, -s / 2, s, s);
+        ctx.rotate(-h.t * 0.6); text('TECH DEBT', 0, h.r + 16, 7, '#ff9b9b', 'center');
+      } else if (h.kind === 'mine') {
         ctx.rotate(h.t);
         ctx.fillStyle = '#2b2f3a'; ctx.beginPath(); ctx.arc(0, 0, h.r, 0, 6.283); ctx.fill();
         ctx.fillStyle = '#6b7280'; for (let i = 0; i < 8; i++) { const a = i * 0.785; ctx.fillRect(Math.cos(a) * h.r - 3, Math.sin(a) * h.r - 3, 7, 7); }
@@ -1392,6 +1398,17 @@
     for (const k of G.pickups) {
       const def = POWERUPS[k.kind];
       ctx.save(); ctx.translate(k.x, k.y);
+      const img = IMG[`pickup_${k.kind}`];
+      if (img && img.naturalWidth) {
+        // fit the sprite into a 48 px box, bob it and pulse a glow in the pickup colour behind it
+        const s = 48 / Math.max(img.naturalWidth, img.naturalHeight), w = img.naturalWidth * s, h = img.naturalHeight * s;
+        ctx.translate(0, Math.sin(k.t * 4) * 3);
+        ctx.globalAlpha = 0.25 + 0.15 * Math.sin(k.t * 8); ctx.fillStyle = def.color;
+        ctx.beginPath(); ctx.arc(0, 0, 26, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
+        ctx.drawImage(img, -w / 2, -h / 2, w, h);
+        text(def.label, 0, 30, 7, def.color, 'center');
+        ctx.restore(); continue;
+      }
       ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-16, -16, 32, 32);
       ctx.fillStyle = def.color; ctx.fillRect(-13, -13, 26, 26);
       ctx.fillStyle = '#fff'; ctx.globalAlpha = 0.5 + 0.5 * Math.sin(k.t * 8); ctx.fillRect(-13, -13, 26, 4); ctx.globalAlpha = 1;

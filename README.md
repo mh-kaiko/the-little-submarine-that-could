@@ -94,6 +94,9 @@ matching check in `update`.
 | AZURE CREDITS | +70 tokens, but −15 funding |
 | MDR CERT      | Dropped by the MDR boss only. Permanent +25% damage for the rest of the run |
 
+Pickup art: drop `assets/raw/pickup_<kind>.png` (kind = the `POWERUPS` key, e.g. `pickup_tokens.png`) and run
+`tools/extract_sprites.py`. Pickups without a sprite fall back to a coloured box. The tech debt mine uses `assets/raw/tech_debt.png` the same way.
+
 ## Hazards
 
 - **Tech debt mines** drift towards you. Shoot them for points or eat 20 funding.
