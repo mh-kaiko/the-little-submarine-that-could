@@ -313,6 +313,7 @@
     if (zone.boss && !G.boss && !G.bossDefeated[zone.boss]) spawnBoss(zone.boss);
     const difficulty = clamp(G.depth / MAX_DEPTH, 0, 1);
     Sound.setTempoDepth(difficulty);
+    Sound.setTrack(G.boss ? 'boss' : 'level');
 
     // player movement
     let ax = 0, ay = 0;
