@@ -93,7 +93,7 @@ Class attributes (defaults shown):
 | `name` | class name | display name, used in logs and the validator |
 | `tier` | `1` | `1` (easy) to `5` (hard). `0` means never auto-spawned; only reachable via `world.spawn` |
 | `weight` | `1.0` | relative spawn frequency within its tier, must be > 0 |
-| `boss` | `False` | spawned alone at boss milestones, exempt from off-screen removal |
+| `boss` | `False` | spawned alone at boss milestones, only removed off the left edge |
 | `hp` | `1` | hit points; player bullets deal 1 |
 | `score` | `100` | points awarded on death |
 | `sprite` | required | a `Sprite` |
@@ -149,7 +149,9 @@ Actions:
   score is added, a small particle burst plays, and the enemy is removed.
 - Collisions are axis-aligned bounding boxes.
 - Enemies are removed silently when `x < -48`, `x > width + 96`, or
-  `y` is more than 64 outside the canvas. Bosses are exempt.
+  `y` is more than 64 outside the canvas. Bosses are exempt from the right
+  and vertical margins but are still removed past the left edge, so a boss
+  that drifts away cannot block spawning forever.
 - Bullets are removed when fully off canvas.
 - Hit enemies flash white for a few frames.
 
