@@ -123,7 +123,7 @@
     G.particles = []; G.texts = []; G.bubbles = [];
     G.depth = 0; G.score = 0; G.time = 0; G.kills = 0;
     G.spawnT = 1.5; G.hazardT = 6; G.pickupT = 8; G.zoneIdx = -1; G.banner = null;
-    G.boss = null; G.bossDefeated = {}; G.scrollX = 0; G.wave = null;
+    G.boss = null; G.bossDefeated = {}; G.scrollX = 0; G.wave = null; G.endAt = 0; G.drips = []; G.winAt = 0; G.confetti = [];
     for (let i = 0; i < 40; i++) G.bubbles.push({ x: rand(0, W), y: rand(0, H), r: rand(1, 4), s: rand(15, 45) });
   }
 
@@ -159,6 +159,7 @@
       if (code === 'KeyP' || code === 'Escape' || code === 'Enter') state = 'play';
     } else if (state === 'gameover' || state === 'win') {
       if (code === 'Enter' || code === 'Space') state = 'title';
+      if (code === 'KeyR') startGame();
     }
   }
   function startGame() { newGame(selected); state = 'play'; Sound.startMusic(); Sound.play('select'); }
@@ -270,13 +271,29 @@
         } else {
           for (let i = 0; i < 3; i++) spawnPickup(e.x - 60 + i * 60, e.y, ['funding', 'tokens', 'opus6'][i]);
         }
-        if (e.type === 'scarlet') { setTimeout(() => { if (state === 'play') { state = 'win'; Sound.stopMusic(); Sound.play('win'); } }, 1500); }
+        if (e.type === 'scarlet') G.winAt = G.time + 1.5; // let the explosion play; paused time does not count
         else G.banner = { title: 'AUDIT PASSED', sub: 'Descending further...', t: 2.5 };
       } else {
         Sound.play('explode'); shake = Math.max(shake, 0.12);
         if (Math.random() < 0.22) spawnPickup(e.x, e.y);
       }
     }
+  }
+  const BLOOD = '#b0101a';
+  function makeDrips() {
+    const n = 7 + Math.floor(Math.random() * 4);
+    return Array.from({ length: n }, () => ({ fx: rand(0.05, 0.95), w: rand(3, 6), max: rand(25, 90), speed: rand(25, 60) }));
+  }
+  function makeConfetti() {
+    const colors = [...PILOTS.map(k => CHARACTERS[k].color), '#5cff5c', '#ffffff'];
+    return Array.from({ length: 120 }, () => ({ x: rand(0, W), y0: rand(-H, -10), vy: rand(60, 140), sway: rand(10, 40), f: rand(1, 3), spin: rand(2, 8), size: rand(5, 9), color: pick(colors) }));
+  }
+  // The single way a run ends: freezes play and stamps the time the end screen animates from.
+  function endRun(win) {
+    state = win ? 'win' : 'gameover'; G.endAt = elapsed;
+    Sound.stopMusic(); Sound.play(win ? 'win' : 'gameover');
+    G.drips = win ? [] : makeDrips();
+    G.confetti = win ? makeConfetti() : [];
   }
   function hurtPlayer(amount, reason) {
     const p = G.player;
@@ -285,7 +302,7 @@
     Sound.play('hurt');
     addText(p.x, p.y - 55, `-${amount} funding` + (reason ? ` (${reason})` : ''), '#ff6b6b');
     burst(p.x, p.y, '#ffb347', 12, 180);
-    if (p.funding <= 0) { p.funding = 0; state = 'gameover'; Sound.stopMusic(); Sound.play('gameover'); burst(p.x, p.y, '#ffb300', 60, 300); }
+    if (p.funding <= 0) { p.funding = 0; endRun(false); burst(p.x, p.y, '#ffb300', 60, 300); }
   }
   function applyPickup(k) {
     const p = G.player, def = POWERUPS[k];
@@ -382,6 +399,7 @@
     if (state !== 'play') return;
     const p = G.player, c = G.char;
     G.time += dt;
+    if (G.winAt && G.time >= G.winAt) { endRun(true); return; }
     const wdt = p.deep > 0 ? dt * DEEP_SCALE : dt; // world time; player systems keep dt
 
     // depth & zones
@@ -764,13 +782,60 @@
     text('Funding = HP. Tokens = ammo (they regenerate). Run out of funding and it is game over.', W / 2, 512, 7, '#9fc3ff', 'center');
   }
 
+  function drawRunStats(y) {
+    text(`SCORE ${G.score}`, W / 2, y, 16, '#ffe066', 'center');
+    text(`DEPTH REACHED ${Math.floor(G.depth)}m   ·   ENEMIES DEFEATED ${G.kills}   ·   TIME ${Math.floor(G.time)}s`, W / 2, y + 33, 8, '#cfe3ff', 'center');
+  }
+  function drawEndPrompt(y, again) {
+    if (Math.floor(elapsed * 2) % 2 === 0) text(`ENTER: CHOOSE PILOT   R: ${again}`, W / 2, y, 11, '#fff', 'center');
+  }
+  // "THE LITTLE SUBMARINE THAT COULD" + a bigger, bleeding "N'T".
+  function drawCouldnt() {
+    const t = elapsed - G.endAt, y = H / 2 - 150, lead = 'THE LITTLE SUBMARINE THAT COULD';
+    ctx.font = `18px ${FONT}`; const lw = ctx.measureText(lead).width;
+    ctx.font = `34px ${FONT}`; const nw = ctx.measureText("N'T").width;
+    const x0 = W / 2 - (lw + nw) / 2, nx = x0 + lw;
+    text(lead, x0, y, 18, '#e8f0ff', 'left');
+    ctx.font = `34px ${FONT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#5a0008'; ctx.fillText("N'T", nx + 3, y + 3);
+    ctx.fillStyle = BLOOD; ctx.fillText("N'T", nx, y);
+    const top = y + 14; // just above the bottom of the glyphs
+    for (const d of G.drips) {
+      const len = Math.min(d.max, t * d.speed), dx = nx + d.fx * nw;
+      ctx.fillRect(dx - d.w / 2, top, d.w, len);
+      ctx.beginPath(); ctx.arc(dx, top + len, d.w * 0.75, 0, 6.283); ctx.fill();
+    }
+    text('You ran out of funding before solving healthcare.', W / 2, H / 2 - 15, 10, '#fff', 'center');
+    drawRunStats(H / 2 + 25);
+    drawEndPrompt(H / 2 + 110, 'RETRY');
+  }
+  function drawConfetti() {
+    const t = elapsed - G.endAt;
+    for (const q of G.confetti) {
+      let y = q.y0 + q.vy * t; if (y > H + 10) y = ((y + 10) % (H + 20)) - 10;
+      const x = q.x + Math.sin(t * q.f + q.x) * q.sway;
+      ctx.save(); ctx.translate(x, y); ctx.rotate(t * q.spin);
+      ctx.fillStyle = q.color; ctx.fillRect(-q.size / 2, -q.size / 4, q.size, q.size / 2);
+      ctx.restore();
+    }
+  }
+  function drawVictory() {
+    drawConfetti();
+    const c = G.char, sw = c.width * 1.2, sh = spriteH(c.sprite, sw);
+    const sub = { x: W / 2, y: H / 2 - 150 + Math.sin(elapsed * 2) * 6, w: sw, h: sh, tilt: 0 };
+    drawPilotHead(sub, c);
+    drawSprite(c.sprite, sub.x, sub.y, sw, sh);
+    text('CONGRATULATIONS!', W / 2, H / 2 - 62, 26, '#5cff5c', 'center');
+    text("You've solved healthcare.", W / 2, H / 2 - 28, 12, '#fff', 'center');
+    text('Kaiko is now deployed in every hospital in the EU,', W / 2, H / 2 - 4, 9, '#dfe8ff', 'center');
+    text('helping a million clinicians treat millions of patients.', W / 2, H / 2 + 12, 9, '#dfe8ff', 'center');
+    text('SCARLET signed off. CE mark obtained.', W / 2, H / 2 + 34, 8, '#9fc3ff', 'center');
+    drawRunStats(H / 2 + 65);
+    drawEndPrompt(H / 2 + 130, 'PLAY AGAIN');
+  }
   function drawEnd(win) {
     ctx.fillStyle = win ? 'rgba(0,40,20,0.75)' : 'rgba(40,0,0,0.75)'; ctx.fillRect(0, 0, W, H);
-    text(win ? 'CE MARK OBTAINED!' : 'YOU RAN OUT OF FUNDING', W / 2, H / 2 - 80, win ? 26 : 22, win ? '#5cff5c' : '#ff5c5c', 'center');
-    text(win ? 'SCARLET signed off. Kaiko surfaces certified.' : 'The investors have left the building.', W / 2, H / 2 - 40, 10, '#fff', 'center');
-    text(`SCORE ${G.score}`, W / 2, H / 2 + 5, 16, '#ffe066', 'center');
-    text(`DEPTH REACHED ${Math.floor(G.depth)}m   ·   ENEMIES DEFEATED ${G.kills}   ·   TIME ${Math.floor(G.time)}s`, W / 2, H / 2 + 38, 8, '#cfe3ff', 'center');
-    if (Math.floor(elapsed * 2) % 2 === 0) text('PRESS ENTER TO TRY AGAIN', W / 2, H / 2 + 90, 11, '#fff', 'center');
+    if (win) drawVictory(); else drawCouldnt();
   }
 
   function render() {

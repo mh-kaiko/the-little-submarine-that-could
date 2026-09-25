@@ -28,12 +28,16 @@ python3 -m http.server 8000
 | Special | Shift (costs tokens, has cooldown) |
 | Pause   | P or Esc                |
 | Mute    | M                       |
-| Choose pilot / start | Left/Right + Enter, or click |
+| Choose pilot / start | Left/Right or 1/2/3, then Enter, or click |
+| Retry after a run | R (same pilot), Enter to choose a pilot |
 
 ## Pilots
 
-- **Robert (CEO)** pilots the big Kaiko sub. More funding, slower. Special **FUNDRAISE**: a pitch wave that damages everything on screen, clears enemy projectiles and converts 40 tokens into 30 funding.
-- **Thomas (CTO)** pilots the mini scout sub. Faster, cheaper shots, thinner hull. Special **HOTFIX**: 5 seconds of invincibility and double fire rate.
+- **Thomas (CEO)** pilots the big Kaiko sub. More funding, slower. Special **FUNDRAISE**: a pitch wave that damages everything on screen, clears enemy projectiles and converts 40 tokens into 30 funding.
+- **Robert (CTO)** pilots the mini scout sub. Faster, cheaper shots, thinner hull. Special **DEEP THOUGHT**: for 4 seconds the whole ocean slows to 30% while Kaiko keeps full speed.
+- **Veerle (MD)** pilots the dome sub. Balanced hull and speed. Special **STAY ON TOPIC**: for 8 seconds every shot is free, homes in on the nearest enemy and pierces through one.
+
+Run out of funding and you are the little submarine that couldn't. Beat SCARLET at 4000 m and you have solved healthcare.
 
 ## Power-ups
 
