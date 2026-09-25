@@ -82,6 +82,9 @@
   ];
   const MAX_DEPTH = 4000;
   const DESCENT_RATE = 22; // metres per second
+  const DEEP_SCALE = 0.3;   // DEEP THOUGHT: world speed while active; Kaiko keeps full speed
+  const TOPIC_FIRE = 0.66;  // STAY ON TOPIC: fire cooldown multiplier (about 1.5x the fire rate)
+  const HOMING_TURN = 12.6; // rad/s a homing shot can turn (about 720 degrees per second)
 
   const POWERUPS = {
     opus6:   { label: 'OPUS 6',       color: '#ff7ad9', text: 'OPUS 6! Triple projectiles',    w: 4 },
@@ -206,13 +209,24 @@
       G.bullets.push({ x: p.x + p.w * 0.45, y: p.y + 4, vx: 520, vy: 0, r: 22, dmg: 6 * mult, pierce: true, kind: 'vortex', t: 0 });
       Sound.play('vortex'); return;
     }
-    const cost = 3;
+    const topic = p.onTopic > 0, cost = topic ? 0 : 3;
     if (p.tokens < cost) { if (Math.random() < 0.3) addText(p.x, p.y - 50, 'TOKEN LIMIT!', '#ff6b6b'); Sound.play('denied'); p.fireCd = 0.25; return; }
     p.tokens -= cost;
-    p.fireCd = c.fireRate;
+    p.fireCd = c.fireRate * (topic ? TOPIC_FIRE : 1);
     const angles = p.opus > 0 ? [-0.22, 0, 0.22] : [0];
-    for (const a of angles) G.bullets.push({ x: p.x + p.w * 0.45, y: p.y + 4, vx: Math.cos(a) * 620, vy: Math.sin(a) * 620, r: 5, dmg: c.bulletDmg * mult, pierce: false, kind: p.opus > 0 ? 'opus' : 'token', t: 0 });
+    for (const a of angles) G.bullets.push({ x: p.x + p.w * 0.45, y: p.y + 4, vx: Math.cos(a) * 620, vy: Math.sin(a) * 620, r: 5, dmg: c.bulletDmg * mult, pierce: false, kind: topic ? 'topic' : p.opus > 0 ? 'opus' : 'token', t: 0, homing: topic, pierceLeft: topic ? 1 : 0 });
     Sound.play('shoot');
+  }
+  // Turn a homing shot toward the nearest living enemy it has not hit yet, keeping its speed.
+  function steer(b, dt) {
+    let best = null, bd = Infinity;
+    for (const e of G.enemies) { if (e.dead || (b.hitSet && b.hitSet.has(e))) continue; const d = dist2(b.x, b.y, e.x, e.y); if (d < bd) { bd = d; best = e; } }
+    if (!best) return;
+    const sp = Math.hypot(b.vx, b.vy), cur = Math.atan2(b.vy, b.vx);
+    let diff = Math.atan2(best.y - b.y, best.x - b.x) - cur;
+    diff = Math.atan2(Math.sin(diff), Math.cos(diff)); // wrap to -PI..PI
+    const a = cur + clamp(diff, -HOMING_TURN * dt, HOMING_TURN * dt);
+    b.vx = Math.cos(a) * sp; b.vy = Math.sin(a) * sp;
   }
   function useSpecial() {
     const p = G.player, c = G.char, s = c.special;
@@ -368,10 +382,11 @@
     if (state !== 'play') return;
     const p = G.player, c = G.char;
     G.time += dt;
+    const wdt = p.deep > 0 ? dt * DEEP_SCALE : dt; // world time; player systems keep dt
 
     // depth & zones
-    if (!G.boss) G.depth = Math.min(MAX_DEPTH, G.depth + DESCENT_RATE * dt);
-    G.scrollX += (G.boss ? 40 : 90) * dt;
+    if (!G.boss) G.depth = Math.min(MAX_DEPTH, G.depth + DESCENT_RATE * wdt);
+    G.scrollX += (G.boss ? 40 : 90) * wdt;
     const zone = currentZone();
     const zi = ZONES.indexOf(zone);
     if (zi !== G.zoneIdx) {
@@ -404,71 +419,75 @@
 
     // spawn enemies
     if (!zone.boss) {
-      G.spawnT -= dt;
+      G.spawnT -= wdt;
       if (G.spawnT <= 0) {
         const interval = lerp(2.4, 0.9, difficulty);
         G.spawnT = interval * rand(0.7, 1.3);
         spawnEnemy(weightedPick(zone.enemies.map(([k, w]) => ({ w, v: k }))));
         if (difficulty > 0.35 && Math.random() < 0.3) spawnEnemy(weightedPick(zone.enemies.map(([k, w]) => ({ w, v: k }))));
       }
-      G.hazardT -= dt;
+      G.hazardT -= wdt;
       if (G.hazardT <= 0) { G.hazardT = lerp(7, 3.5, difficulty) * rand(0.7, 1.3); spawnHazard(); }
     }
-    G.pickupT -= dt;
+    G.pickupT -= wdt;
     if (G.pickupT <= 0) { G.pickupT = rand(8, 13); spawnPickup(W + 20, rand(60, H - 60)); }
 
     // enemies
     for (const e of G.enemies) {
-      e.t += dt; e.flash -= dt;
+      e.t += wdt; e.flash -= wdt;
       const d = e.d;
       switch (d.move) {
-        case 'sine': e.x -= d.speed * dt; e.y = e.baseY + Math.sin(e.t * d.freq) * d.amp; break;
-        case 'drift': e.x -= d.speed * dt; e.y = e.baseY + Math.sin(e.t * d.freq) * d.amp; break;
-        case 'zigzag': e.x -= d.speed * dt; e.y += e.dir * 140 * dt; if (e.y < 50 || e.y > H - 50) e.dir *= -1; break;
-        case 'chase': e.x -= d.speed * dt; e.y = lerp(e.y, p.y, 1 - Math.pow(0.35, dt)); break;
-        case 'hover': if (e.x > W - 160) e.x -= d.speed * 2 * dt; else e.x -= d.speed * 0.25 * dt; e.y = e.baseY + Math.sin(e.t * d.freq) * d.amp; break;
+        case 'sine': e.x -= d.speed * wdt; e.y = e.baseY + Math.sin(e.t * d.freq) * d.amp; break;
+        case 'drift': e.x -= d.speed * wdt; e.y = e.baseY + Math.sin(e.t * d.freq) * d.amp; break;
+        case 'zigzag': e.x -= d.speed * wdt; e.y += e.dir * 140 * wdt; if (e.y < 50 || e.y > H - 50) e.dir *= -1; break;
+        case 'chase': e.x -= d.speed * wdt; e.y = lerp(e.y, p.y, 1 - Math.pow(0.35, wdt)); break;
+        case 'hover': if (e.x > W - 160) e.x -= d.speed * 2 * wdt; else e.x -= d.speed * 0.25 * wdt; e.y = e.baseY + Math.sin(e.t * d.freq) * d.amp; break;
         case 'boss': {
-          if (e.entering) { e.x -= 120 * dt; if (e.x <= W - 170) e.entering = false; }
+          if (e.entering) { e.x -= 120 * wdt; if (e.x <= W - 170) e.entering = false; }
           else { e.y = H / 2 + Math.sin(e.t * 0.9) * 150; e.x = W - 170 + Math.sin(e.t * 0.4) * 30; }
           break;
         }
       }
       e.y = clamp(e.y, 30, H - 30);
       if (d.boss) {
-        if (e.type === 'mdr' && !e.entering) mdrThink(e, dt);
-        if (!e.entering) { e.shootT -= dt; if (e.shootT <= 0) { const next = bossAttack(e); e.shootT = next || (e.hp < e.maxHp * 0.4 ? 1.1 : 1.6); } }
+        if (e.type === 'mdr' && !e.entering) mdrThink(e, wdt);
+        if (!e.entering) { e.shootT -= wdt; if (e.shootT <= 0) { const next = bossAttack(e); e.shootT = next || (e.hp < e.maxHp * 0.4 ? 1.1 : 1.6); } }
       } else if (d.shoot && e.x < W - 40 && e.x > 60) {
-        e.shootT -= dt; if (e.shootT <= 0) { e.shootT = d.shoot * rand(0.8, 1.2) * lerp(1.2, 0.8, difficulty); fireEnemy(e); }
+        e.shootT -= wdt; if (e.shootT <= 0) { e.shootT = d.shoot * rand(0.8, 1.2) * lerp(1.2, 0.8, difficulty); fireEnemy(e); }
       }
       if (e.x < -e.w) e.dead = true;
       if (!e.dead && hitRect(e, p)) { hurtPlayer(d.boss ? 20 : 15, d.name); if (!d.boss) damageEnemy(e, 2); }
     }
     // bullets
     for (const b of G.bullets) {
-      b.t += dt; b.x += b.vx * dt; b.y += b.vy * dt;
-      if (b.x > W + 40 || b.y < -20 || b.y > H + 20) b.dead = true;
+      b.t += dt;
+      if (b.homing) steer(b, dt);
+      b.x += b.vx * dt; b.y += b.vy * dt;
+      if (b.x > W + 40 || b.x < -40 || b.y < -20 || b.y > H + 20) b.dead = true;
       if (b.dead) continue;
       for (const e of G.enemies) {
         if (e.dead) continue;
         if (Math.abs(b.x - e.x) < e.hw + b.r && Math.abs(b.y - e.y) < e.hh + b.r) {
-          if (b.kind === 'vortex') { if (!b.hitSet) b.hitSet = new Set(); if (b.hitSet.has(e)) continue; b.hitSet.add(e); }
+          if (b.kind === 'vortex' || b.homing) { if (!b.hitSet) b.hitSet = new Set(); if (b.hitSet.has(e)) continue; b.hitSet.add(e); }
           damageEnemy(e, b.dmg); burst(b.x, b.y, '#ffe066', 4, 120);
-          if (!b.pierce) { b.dead = true; break; }
+          if (b.pierce) continue;
+          if (b.pierceLeft > 0) { b.pierceLeft--; continue; }
+          b.dead = true; break;
         }
       }
       if (b.dead) continue;
       for (const h of G.hazards) if (h.kind === 'mine' && !h.dead && dist2(b.x, b.y, h.x, h.y) < (h.r + b.r) ** 2) { h.dead = true; b.dead = !b.pierce; burst(h.x, h.y, '#ff5c5c', 20, 220); Sound.play('explode'); G.score += 40; addText(h.x, h.y, 'DEBT CLEARED +40', '#ffe066'); }
     }
     for (const b of G.ebullets) {
-      b.t += dt; b.x += b.vx * dt; b.y += b.vy * dt;
+      b.t += wdt; b.x += b.vx * wdt; b.y += b.vy * wdt;
       if (b.x < -20 || b.x > W + 60 || b.y < -20 || b.y > H + 20) b.dead = true;
       if (!b.dead && hitRect(b, p)) { b.dead = true; if (p.shield > 0) burst(b.x, b.y, '#ffe066', 5, 100); else hurtPlayer(b.dmg); }
     }
     // conformity scan beams: telegraph, then sweep left draining tokens
     for (const bm of G.beams) {
-      bm.t += dt;
-      if (bm.warm > 0) { bm.warm -= dt; continue; }
-      bm.x -= bm.speed * dt;
+      bm.t += wdt;
+      if (bm.warm > 0) { bm.warm -= wdt; continue; }
+      bm.x -= bm.speed * wdt;
       if (bm.x < -bm.w) bm.dead = true;
       if (Math.abs(bm.x - p.x) < bm.w / 2 + p.hw) {
         p.tokens = Math.max(0, p.tokens - 45 * dt);
@@ -477,22 +496,22 @@
     }
     // hazards
     for (const h of G.hazards) {
-      h.t += dt; h.x += h.vx * dt;
-      if (h.kind === 'mine') { h.y += Math.sin(h.t * 2) * 20 * dt; if (hitRect(h, p)) { h.dead = true; burst(h.x, h.y, '#ff5c5c', 24, 240); hurtPlayer(20, 'tech debt'); } }
+      h.t += wdt; h.x += h.vx * wdt;
+      if (h.kind === 'mine') { h.y += Math.sin(h.t * 2) * 20 * wdt; if (hitRect(h, p)) { h.dead = true; burst(h.x, h.y, '#ff5c5c', 24, 240); hurtPlayer(20, 'tech debt'); } }
       if (h.x < -120) h.dead = true;
     }
     // pickups
     for (const k of G.pickups) {
-      k.t += dt; k.x += k.vx * dt; k.y += Math.sin(k.t * 3) * 25 * dt;
+      k.t += wdt; k.x += k.vx * wdt; k.y += Math.sin(k.t * 3) * 25 * wdt;
       if (k.x < -30) k.dead = true;
       if (hitRect(k, p)) { k.dead = true; applyPickup(k.kind); }
     }
     // pitch wave
     if (G.wave) { G.wave.t += dt; if (G.wave.t > 0.8) G.wave = null; }
     // particles / texts / bubbles
-    for (const q of G.particles) { q.t += dt; q.x += q.vx * dt; q.y += q.vy * dt; q.vx *= 0.96; q.vy *= 0.96; if (q.t > q.life) q.dead = true; }
+    for (const q of G.particles) { q.t += wdt; q.x += q.vx * wdt; q.y += q.vy * wdt; q.vx *= 0.96; q.vy *= 0.96; if (q.t > q.life) q.dead = true; }
     for (const t of G.texts) { t.t += dt; t.y -= 30 * dt; if (t.t > t.life) t.dead = true; }
-    for (const b of G.bubbles) { b.y -= b.s * dt; b.x -= 20 * dt; if (b.y < -10) { b.y = H + 10; b.x = rand(0, W); } if (b.x < -10) b.x = W + 10; }
+    for (const b of G.bubbles) { b.y -= b.s * wdt; b.x -= 20 * wdt; if (b.y < -10) { b.y = H + 10; b.x = rand(0, W); } if (b.x < -10) b.x = W + 10; }
     if (G.banner) { G.banner.t -= dt; if (G.banner.t <= 0) G.banner = null; }
     shake = Math.max(0, shake - dt); flash = Math.max(0, flash - dt * 2);
 
@@ -606,6 +625,11 @@
       if (b.kind === 'vortex') {
         ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.t * 12);
         for (let i = 0; i < 3; i++) { ctx.rotate(2.094); ctx.fillStyle = i === 0 ? '#7dffb3' : i === 1 ? '#4fd1ff' : '#ffffff'; ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(b.r * 0.8, -b.r * 0.6, b.r * 1.2, b.r * 0.3); ctx.quadraticCurveTo(b.r * 0.4, b.r * 0.4, 0, 0); ctx.fill(); }
+        ctx.restore();
+      } else if (b.kind === 'topic') {
+        ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(Math.atan2(b.vy, b.vx));
+        ctx.fillStyle = CHARACTERS.veerle.color; ctx.fillRect(-8, -3, 16, 6);
+        ctx.fillStyle = '#fff'; ctx.fillRect(-2, -2, 6, 4);
         ctx.restore();
       } else {
         ctx.fillStyle = b.kind === 'opus' ? '#ff7ad9' : '#ffe066';
@@ -763,6 +787,7 @@
     drawBullets();
     drawEffects();
     if (flash > 0) { ctx.fillStyle = `rgba(255,80,80,${flash * 0.5})`; ctx.fillRect(0, 0, W, H); }
+    if (G.player.deep > 0 && (state === 'play' || state === 'paused')) { ctx.fillStyle = 'rgba(70,130,255,0.14)'; ctx.fillRect(0, 0, W, H); }
     drawHUD();
     if (state === 'paused') { ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, W, H); text('PAUSED', W / 2, H / 2 - 10, 24, '#fff', 'center'); text('Press P to resume', W / 2, H / 2 + 25, 10, '#cfe3ff', 'center'); }
     if (state === 'gameover') drawEnd(false);
