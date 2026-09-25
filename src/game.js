@@ -56,7 +56,7 @@
       hatch: { x: 0.73, y: 0.3, size: 0.2 }, // right of the periscope, before the front dome
       gear: { art: 'scalpel', x: 0.5, y: 0.17, px: 1 / 65 }, // mounted under the dome: centre offset and pixel size as fractions of sub width
       width: 130, hitScale: 0.55, speed: 270, funding: 100, tokens: 110, fireRate: 0.19, tokenRegen: 12, bulletDmg: 1,
-      blurb: ['The clinical sub.', 'Balanced hull and speed.', 'Keeps everyone on topic.'],
+      blurb: ['The clinical sub.', 'Ram with the scalpel:', 'it is sharp as hell.'],
       special: { name: 'STAY ON TOPIC', cost: 30, cooldown: 12, duration: 8, desc: ['8 seconds of free,', 'homing, piercing shots.', 'Nobody wanders off.'] },
     },
   };
@@ -134,6 +134,7 @@
   const LETTERBOX_TIME = 2.5;                   // boss entrance: seconds of cinematic bars
   const THERAPY_ZAP = 0.8, THERAPY_TIME = 1.9; // CAR-T REPROGRAM: lock-on time, total animation time
   const ALLY_TIME = 6, ALLY_FIRE = 0.45; // a reprogrammed enemy fights for you this long, shooting this often // TAILORED THERAPY: lock-on time, total animation time
+  const SCALPEL_DMG = 4, SCALPEL_CUT = 0.12; // Veerle's scalpel: damage per slice, seconds between slices on the same enemy
   const PM_SCROLL = 2.2; // ...and the ocean scrolls this much faster again on top of that
   const PM_SPEED = 2.8; // PERSONALIZED MEDICINE: the whole world runs this much faster, always
   const DEEP_SCALE = 0.3;   // DEEP THOUGHT: world speed while active; Kaiko keeps full speed
@@ -220,10 +221,10 @@
       x: 160, y: H / 2, vx: 0, vy: 0, w: c.width, h: spriteH(c.sprite, c.width),
       hw: c.width * c.hitScale / 2, hh: spriteH(c.sprite, c.width) * c.hitScale / 2,
       funding, maxFunding: funding, tokens, maxTokens: tokens,
-      fireCd: 0, invuln: 0, shield: 0, opus: 0, vortex: 0, deep: 0, onTopic: 0, specialCd: 0, tilt: 0, drain: 0,
+      fireCd: 0, invuln: 0, shield: 0, opus: 0, vortex: 0, deep: 0, onTopic: 0, specialCd: 0, tilt: 0, drain: 0, bloody: 0,
     };
     G.bullets = []; G.ebullets = []; G.enemies = []; G.hazards = []; G.pickups = []; G.beams = [];
-    G.particles = []; G.texts = []; G.bubbles = []; G.drain = []; G.bills = []; G.fly = []; G.helix = []; G.bases = []; G.helixN = 0; G.therapy = null;
+    G.particles = []; G.texts = []; G.bubbles = []; G.drain = []; G.bills = []; G.fly = []; G.helix = []; G.bases = []; G.helixN = 0; G.therapy = null; G.blood = [];
     G.hud = { fundGlow: 0, tokGlow: 0, tokEmpty: 0, chunk: null }; G.ripple = null; G.slowmo = 0; G.focus = null; G.letterbox = 0;
     G.depth = START_DEPTH; G.score = 0; G.time = 0; G.kills = 0;
     G.spawnT = 1.5; G.hazardT = 6; G.pickupT = 8; G.zoneIdx = -1; G.banner = null;
@@ -542,6 +543,22 @@
       G.bullets.push({ x: e.x + e.w * 0.3, y: e.y, vx: Math.cos(a) * 560, vy: Math.sin(a) * 560, r: 5, dmg: 2, pierce: false, kind: 'ally', t: 0 });
     }
   }
+  // Veerle's scalpel blade as a hitbox: the right half of the gear art, in world space (tilt ignored).
+  function scalpelBox(p, c) {
+    const g = c.gear, art = GEAR.scalpel, px = p.w * g.px, rw = art.rows[0].length * px, rh = art.rows.length * px;
+    const cx = p.x + g.x * p.w, cy = p.y + g.y * p.w;
+    return { x: cx + rw * 0.25, y: cy, hw: rw * 0.25 + 4, hh: rh / 2 + 5 };
+  }
+  function slice(e) {
+    const p = G.player, b = scalpelBox(p, G.char), x = b.x + b.hw * 0.6;
+    damageEnemy(e, e.d.boss ? SCALPEL_DMG * 1.5 : SCALPEL_DMG);
+    bleed(x, e.y + rand(-6, 6), e.d.boss ? 14 : 22);
+    p.bloody = 2.5; shake = Math.max(shake, 0.1);
+  }
+  // Blood: heavy droplets that spurt forward along the cut and fall.
+  function bleed(x, y, n) {
+    for (let i = 0; i < n; i++) { const a = rand(-1.3, 0.5); const sp = rand(80, 320); G.blood.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, t: 0, life: rand(0.5, 1.1), size: rand(2, 5), c: pick(['#b0101a', '#8a0010', '#e0192b', '#ff2a2a']) }); }
+  }
   function steer(b, dt) {
     let best = null, bd = Infinity;
     for (const e of G.enemies) { if (e.dead || e.ally || (b.hitSet && b.hitSet.has(e))) continue; const d = dist2(b.x, b.y, e.x, e.y); if (d < bd) { bd = d; best = e; } }
@@ -847,6 +864,10 @@
     G.helix = G.helix.filter(h => h.t < 1.4);
     for (const b of G.bases) { b.t += dt; b.y += b.vy * dt; }
     G.bases = G.bases.filter(b => b.t < 1);
+    p.bloody = Math.max(0, p.bloody - dt);
+    if (p.bloody > 0 && c.gear && c.gear.art === 'scalpel' && Math.random() < dt * 8 * p.bloody) { const b = scalpelBox(p, c); G.blood.push({ x: b.x + rand(-b.hw, b.hw) * 0.8, y: b.y + b.hh - 4, vx: rand(-20, 10), vy: rand(0, 30), t: 0, life: 0.8, size: rand(2, 3), c: '#b0101a' }); } // the blade drips
+    for (const q of G.blood) { q.t += dt; q.vy += 520 * dt; q.vx *= 0.97; q.x += q.vx * dt; q.y += q.vy * dt; }
+    G.blood = G.blood.filter(q => q.t < q.life);
     Sound.setTrack(!G.boss ? 'level' : G.boss.type === FINAL_BOSS ? 'final' : 'boss');
 
     // player movement
@@ -939,6 +960,11 @@
         e.shootT -= wdt; if (e.shootT <= 0) { e.shootT = d.shoot * rand(0.8, 1.2) * lerp(1.2, 0.8, difficulty) * (zone.fireMul || 1); fireEnemy(e); }
       }
       if (e.x < -e.w) e.dead = true;
+      if (!e.dead && c.gear && c.gear.art === 'scalpel' && hitRect(e, scalpelBox(p, c))) { // the blade is in front of the hull: it cuts before anything can touch the sub
+        e.cutT = (e.cutT || 0) - dt;
+        if (e.cutT <= 0) { e.cutT = SCALPEL_CUT; slice(e); }
+        continue;
+      }
       if (!e.dead && hitRect(e, p)) { hurtPlayer((d.boss ? 20 : 15) * G.mods.enemyDmg[e.type], d.name); if (!d.boss) damageEnemy(e, 2); }
     }
     // bullets
@@ -1148,7 +1174,11 @@
     const px = p.w * g.px, rw = art.rows[0].length * px, rh = art.rows.length * px;
     ctx.save(); ctx.translate(p.x, p.y); if (p.tilt) ctx.rotate(p.tilt);
     ctx.translate(g.x * p.w - rw / 2, g.y * p.w - rh / 2 + (g.bob ? Math.sin(elapsed * 4) * 3 : 0));
-    art.rows.forEach((row, j) => { for (let i = 0; i < row.length; i++) if (row[i] !== '.') { ctx.fillStyle = art.pal[row[i]]; ctx.fillRect(i * px, j * px, px + 0.5, px + 0.5); } });
+    const gore = g.art === 'scalpel' && p.bloody > 0 ? p.bloody : 0; // a used scalpel: blood creeps up the blade from the edge
+    art.rows.forEach((row, j) => { for (let i = 0; i < row.length; i++) if (row[i] !== '.') {
+      const blade = row[i] === 'w' || row[i] === 's', red = gore && blade && (j >= 3 || ((i * 7 + j * 3) % 5) < gore);
+      ctx.fillStyle = red ? (j % 2 ? '#b0101a' : '#e0192b') : art.pal[row[i]]; ctx.fillRect(i * px, j * px, px + 0.5, px + 0.5);
+    } });
     ctx.restore();
   }
   function drawTherapy() {
@@ -1728,6 +1758,8 @@
     drawBeams();
     drawEnemies();
     drawHelix();
+    for (const q of G.blood) { ctx.globalAlpha = clamp(1.4 - q.t / q.life * 1.4, 0, 1); ctx.fillStyle = q.c; ctx.fillRect(q.x - q.size / 2, q.y - q.size / 2, q.size, q.size); }
+    ctx.globalAlpha = 1;
     drawTherapy();
     drawDarkness();
     drawCancerLights();
