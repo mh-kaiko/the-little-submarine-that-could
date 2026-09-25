@@ -129,6 +129,7 @@
   const WAVE_TIME = 2.2, WAVE_REACH = 1100; // FUNDRAISE: seconds for the pitch wave to cross the screen
   const SLOWMO_TIME = 0.7, SLOWMO_SCALE = 0.25; // boss kill: real seconds of slow motion and the speed during it
   const LETTERBOX_TIME = 2.5;                   // boss entrance: seconds of cinematic bars
+  const THERAPY_ZAP = 0.35, THERAPY_TIME = 1.2; // TAILORED THERAPY: lock-on time, total animation time
   const PM_SCROLL = 2.2; // ...and the ocean scrolls this much faster again on top of that
   const PM_SPEED = 2.8; // PERSONALIZED MEDICINE: the whole world runs this much faster, always
   const DEEP_SCALE = 0.3;   // DEEP THOUGHT: world speed while active; Kaiko keeps full speed
@@ -218,7 +219,7 @@
       fireCd: 0, invuln: 0, shield: 0, opus: 0, vortex: 0, deep: 0, onTopic: 0, specialCd: 0, tilt: 0, drain: 0,
     };
     G.bullets = []; G.ebullets = []; G.enemies = []; G.hazards = []; G.pickups = []; G.beams = [];
-    G.particles = []; G.texts = []; G.bubbles = []; G.drain = []; G.bills = []; G.fly = []; G.helix = []; G.bases = []; G.helixN = 0;
+    G.particles = []; G.texts = []; G.bubbles = []; G.drain = []; G.bills = []; G.fly = []; G.helix = []; G.bases = []; G.helixN = 0; G.therapy = null;
     G.hud = { fundGlow: 0, tokGlow: 0, tokEmpty: 0, chunk: null }; G.ripple = null; G.slowmo = 0; G.focus = null; G.letterbox = 0;
     G.depth = START_DEPTH; G.score = 0; G.time = 0; G.kills = 0;
     G.spawnT = 1.5; G.hazardT = 6; G.pickupT = 8; G.zoneIdx = -1; G.banner = null;
@@ -529,7 +530,10 @@
     p.tokens -= s.cost; p.specialCd = s.cooldown * G.mods.specialCd;
     Sound.play('special');
     if (c.op) {
-      G.wave = { x: p.x, y: p.y, t: 0, hit: new Set(), dmg: 15, bossDmg: 25 };
+      // lock onto everything on screen, then zap it all at THERAPY_ZAP
+      const targets = [...G.enemies.filter(e => !e.dead && e.x < W + 40), ...G.blocks.filter(b => b.kind === 'crate' && !b.dead && b.wx - G.scrollX < W)];
+      for (const b of G.ebullets) { b.dead = true; burst(b.x, b.y, `hsl(${rand(0, 360)}, 100%, 70%)`, 3, 90); }
+      G.therapy = { x: p.x, y: p.y, t: 0, targets, zapped: false, bolts: [] };
       addText(p.x, p.y - 60, 'TAILORED THERAPY!', c.color);
     } else if (c.key === 'thomas') {
       G.wave = { x: p.x, y: p.y, t: 0, hit: new Set(), dmg: 3, bossDmg: 6 }; // damage lands as the wave front reaches each enemy
@@ -984,6 +988,20 @@
       if (hitRect(k, p)) { k.dead = true; applyPickup(k.kind); }
     }
     // pitch wave
+    if (G.therapy) { // TAILORED THERAPY: lock on, then zap every target at once
+      const th = G.therapy; th.t += dt;
+      if (!th.zapped && th.t >= THERAPY_ZAP) {
+        th.zapped = true; shake = Math.max(shake, 0.35); flash = Math.max(flash, 0.2); Sound.play('bigExplode');
+        for (const e of th.targets) {
+          const crate = e.wx !== undefined, x = crate ? e.wx - G.scrollX : e.x;
+          if (e.dead) continue;
+          th.bolts.push({ x, y: e.y, hue: rand(0, 360) });
+          if (crate) damageBlock(e, 15); else damageEnemy(e, e.d.boss ? 25 : 15, true);
+          for (let k = 0; k < 4; k++) burst(x, e.y, `hsl(${k * 90 + rand(0, 60)}, 100%, 65%)`, 8, 260);
+        }
+      }
+      if (th.t > THERAPY_TIME) G.therapy = null;
+    }
     if (G.wave) {
       const wv = G.wave; wv.t += dt;
       const r = waveRadius(wv), r2 = r * r;
@@ -1099,6 +1117,38 @@
     ctx.save(); ctx.translate(p.x, p.y); if (p.tilt) ctx.rotate(p.tilt);
     ctx.translate(g.x * p.w - rw / 2, g.y * p.w - rh / 2 + (g.bob ? Math.sin(elapsed * 4) * 3 : 0));
     art.rows.forEach((row, j) => { for (let i = 0; i < row.length; i++) if (row[i] !== '.') { ctx.fillStyle = art.pal[row[i]]; ctx.fillRect(i * px, j * px, px + 0.5, px + 0.5); } });
+    ctx.restore();
+  }
+  function drawTherapy() {
+    const th = G.therapy;
+    if (!th) return;
+    const p = G.player, t = th.t;
+    ctx.save();
+    if (!th.zapped) { // reticles spin in and tighten onto each target
+      const k = t / THERAPY_ZAP, r = 60 - 40 * k * k;
+      for (const e of th.targets) {
+        const x = e.wx !== undefined ? e.wx - G.scrollX : e.x;
+        ctx.save(); ctx.translate(x, e.y); ctx.rotate((1 - k) * 3); ctx.strokeStyle = `hsl(${(elapsed * 500 + x) % 360}, 100%, 65%)`; ctx.lineWidth = 3; ctx.globalAlpha = 0.4 + 0.6 * k;
+        for (let q = 0; q < 4; q++) { ctx.rotate(Math.PI / 2); ctx.beginPath(); ctx.moveTo(r, -r * 0.45); ctx.lineTo(r, -r); ctx.lineTo(r * 0.45, -r); ctx.stroke(); }
+        ctx.restore();
+      }
+    } else { // rainbow lightning to every target, then a double-helix ring spreading out
+      const k = (t - THERAPY_ZAP) / (THERAPY_TIME - THERAPY_ZAP), fade = 1 - k;
+      for (const bo of th.bolts) {
+        ctx.globalAlpha = fade; ctx.strokeStyle = `hsl(${(bo.hue + elapsed * 900) % 360}, 100%, 70%)`; ctx.lineWidth = 4 * fade + 1; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 14;
+        ctx.beginPath(); ctx.moveTo(p.x + p.w * 0.4, p.y);
+        for (let i = 1; i <= 8; i++) { const f = i / 8; ctx.lineTo(lerp(p.x + p.w * 0.4, bo.x, f) + (i < 8 ? rand(-14, 14) : 0), lerp(p.y, bo.y, f) + (i < 8 ? rand(-14, 14) : 0)); }
+        ctx.stroke();
+      }
+      ctx.shadowBlur = 0;
+      const R = 40 + (1 - (1 - k) ** 2) * 900;
+      for (const [sgn, col] of [[1, '#ff5ca8'], [-1, '#4fd1ff']]) {
+        ctx.globalAlpha = 0.8 * fade; ctx.strokeStyle = col; ctx.lineWidth = 5;
+        ctx.beginPath();
+        for (let a = 0; a <= 6.3; a += 0.05) { const rr = R + sgn * Math.sin(a * 10 + t * 12) * 14; const x = th.x + Math.cos(a) * rr, y = th.y + Math.sin(a) * rr; a === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); }
+        ctx.stroke();
+      }
+    }
     ctx.restore();
   }
   function drawHelix() {
@@ -1591,6 +1641,7 @@
     drawBeams();
     drawEnemies();
     drawHelix();
+    drawTherapy();
     drawDarkness();
     drawCancerLights();
     drawVents();
