@@ -66,7 +66,7 @@
     gear: { art: 'dna', x: 0.03, y: -0.4, px: 1 / 60, bob: true }, // DNA helix standing on the hull where a pilot would be
     width: 170, hitScale: 0.5, speed: 470, funding: 999, tokens: 999, fireRate: 0.07, tokenRegen: 300, bulletDmg: 4,
     blurb: ['Tailored to every patient.', 'Unstoppable.', ''],
-    special: { name: 'TAILORED THERAPY', cost: 0, cooldown: 2, desc: ['Free screen-clearing wave', 'every 2 seconds.', ''] },
+    special: { name: 'CAR-T REPROGRAM', cost: 0, cooldown: 2, desc: ['Reprogram every enemy on', 'screen to fight for you', 'for 6 seconds.'] },
   };
   const PILOTS = Object.keys(CHARACTERS).filter(k => !CHARACTERS[k].op); // select-screen order
   const KONAMI = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'KeyB', 'KeyA'];
@@ -132,7 +132,8 @@
   const WAVE_TIME = 2.2, WAVE_REACH = 1100; // FUNDRAISE: seconds for the pitch wave to cross the screen
   const SLOWMO_TIME = 0.7, SLOWMO_SCALE = 0.25; // boss kill: real seconds of slow motion and the speed during it
   const LETTERBOX_TIME = 2.5;                   // boss entrance: seconds of cinematic bars
-  const THERAPY_ZAP = 0.8, THERAPY_TIME = 1.9; // TAILORED THERAPY: lock-on time, total animation time
+  const THERAPY_ZAP = 0.8, THERAPY_TIME = 1.9; // CAR-T REPROGRAM: lock-on time, total animation time
+  const ALLY_TIME = 6, ALLY_FIRE = 0.45; // a reprogrammed enemy fights for you this long, shooting this often // TAILORED THERAPY: lock-on time, total animation time
   const PM_SCROLL = 2.2; // ...and the ocean scrolls this much faster again on top of that
   const PM_SPEED = 2.8; // PERSONALIZED MEDICINE: the whole world runs this much faster, always
   const DEEP_SCALE = 0.3;   // DEEP THOUGHT: world speed while active; Kaiko keeps full speed
@@ -522,9 +523,28 @@
   }
   // Turn a homing shot toward the nearest living enemy it has not hit yet, keeping its speed.
   function waveRadius(wv) { const k = clamp(wv.t / WAVE_TIME, 0, 1); return WAVE_REACH * (1 - (1 - k) ** 2); } // eases out: a steady, heavy push
+  // A CAR-T reprogrammed enemy: swims just ahead of Kaiko, lines up with the nearest foe and shoots it.
+  function allyThink(e, wdt, dt) {
+    const p = G.player;
+    e.ally -= dt;
+    if (e.ally <= 0) { // therapy complete: the cell is cured and leaves, for its score
+      e.dead = true; G.score += e.d.score; burst(e.x, e.y, '#ff5ca8', 16, 200); burst(e.x, e.y, '#ffffff', 8, 140);
+      addText(e.x, e.y - 30, `CURED +${e.d.score}`, '#7dffb3'); return;
+    }
+    let tgt = null, bd = Infinity;
+    for (const o of G.enemies) { if (o.dead || o.ally) continue; const d2 = dist2(e.x, e.y, o.x, o.y); if (d2 < bd) { bd = d2; tgt = o; } }
+    const gx = clamp(e.x, p.x + 90, W - 90), gy = tgt ? tgt.y : p.y;
+    e.x = lerp(e.x, gx, 1 - Math.pow(0.1, wdt)); e.y = clamp(lerp(e.y, gy, 1 - Math.pow(0.15, wdt)), 30, H - 30);
+    e.allyShootT -= wdt;
+    if (tgt && e.allyShootT <= 0) {
+      e.allyShootT = ALLY_FIRE;
+      const a = Math.atan2(tgt.y - e.y, tgt.x - e.x);
+      G.bullets.push({ x: e.x + e.w * 0.3, y: e.y, vx: Math.cos(a) * 560, vy: Math.sin(a) * 560, r: 5, dmg: 2, pierce: false, kind: 'ally', t: 0 });
+    }
+  }
   function steer(b, dt) {
     let best = null, bd = Infinity;
-    for (const e of G.enemies) { if (e.dead || (b.hitSet && b.hitSet.has(e))) continue; const d = dist2(b.x, b.y, e.x, e.y); if (d < bd) { bd = d; best = e; } }
+    for (const e of G.enemies) { if (e.dead || e.ally || (b.hitSet && b.hitSet.has(e))) continue; const d = dist2(b.x, b.y, e.x, e.y); if (d < bd) { bd = d; best = e; } }
     if (!best) return;
     const sp = Math.hypot(b.vx, b.vy), cur = Math.atan2(b.vy, b.vx);
     let diff = Math.atan2(best.y - b.y, best.x - b.x) - cur;
@@ -539,10 +559,10 @@
     Sound.play('special');
     if (c.op) {
       // lock onto everything on screen, then zap it all at THERAPY_ZAP
-      const targets = [...G.enemies.filter(e => !e.dead && e.x < W + 40), ...G.blocks.filter(b => b.kind === 'crate' && !b.dead && b.wx - G.scrollX < W)];
+      const targets = [...G.enemies.filter(e => !e.dead && !e.ally && e.x < W + 40), ...G.blocks.filter(b => b.kind === 'crate' && !b.dead && b.wx - G.scrollX < W)];
       for (const b of G.ebullets) { b.dead = true; burst(b.x, b.y, `hsl(${rand(0, 360)}, 100%, 70%)`, 3, 90); }
       G.therapy = { x: p.x, y: p.y, t: 0, targets, zapped: false, bolts: [] };
-      addText(p.x, p.y - 60, 'TAILORED THERAPY!', c.color);
+      addText(p.x, p.y - 60, 'CAR-T REPROGRAM!', c.color);
     } else if (c.key === 'thomas') {
       G.wave = { x: p.x, y: p.y, t: 0, hit: new Set(), dmg: 3, bossDmg: 6 }; // damage lands as the wave front reaches each enemy
       p.funding = Math.min(p.maxFunding, p.funding + 30);
@@ -881,6 +901,7 @@
     for (const e of G.enemies) {
       e.t += wdt; e.flash -= wdt;
       const d = e.d;
+      if (e.ally) { allyThink(e, wdt, dt); continue; }
       switch (d.move) {
         case 'sine': e.x -= d.speed * wdt; e.y = e.baseY + Math.sin(e.t * d.freq) * d.amp; break;
         case 'drift': e.x -= d.speed * wdt; e.y = e.baseY + Math.sin(e.t * d.freq) * d.amp; break;
@@ -929,7 +950,7 @@
       if (b.x > W + 40 || b.x < -40 || b.y < -20 || b.y > H + 20) b.dead = true;
       if (b.dead) continue;
       for (const e of G.enemies) {
-        if (e.dead) continue;
+        if (e.dead || e.ally) continue; // shots pass through reprogrammed allies
         if (Math.abs(b.x - e.x) < e.hw + b.r && Math.abs(b.y - e.y) < e.hh + b.r) {
           if (b.kind === 'vortex' || b.homing) { if (!b.hitSet) b.hitSet = new Set(); if (b.hitSet.has(e)) continue; b.hitSet.add(e); }
           let dmg = b.dmg;
@@ -1005,9 +1026,10 @@
           const crate = e.wx !== undefined, x = crate ? e.wx - G.scrollX : e.x;
           if (e.dead) continue;
           th.bolts.push({ x, y: e.y, hue: rand(0, 360) });
-          if (crate) damageBlock(e, 15); else damageEnemy(e, e.d.boss ? 25 : 15, true);
           for (let k = 0; k < 4; k++) burst(x, e.y, `hsl(${k * 90 + rand(0, 60)}, 100%, 65%)`, 8, 260);
-          addText(x, e.y - 30, 'TREATED!', '#7dffb3', true);
+          if (crate) { damageBlock(e, 15); addText(x, e.y - 30, 'TREATED!', '#7dffb3', true); }
+          else if (e.d.boss) { damageEnemy(e, 25, true); addText(x, e.y - e.h / 2, 'RESISTANT: -25', '#ff5c5c', true); } // bosses can't be reprogrammed
+          else { e.ally = ALLY_TIME; e.allyShootT = 0.2; e.flash = 0.25; addText(x, e.y - 30, 'REPROGRAMMED!', CHARACTERS.pm.color, true); }
         }
       }
       if (th.t > THERAPY_TIME) G.therapy = null;
@@ -1015,7 +1037,7 @@
     if (G.wave) {
       const wv = G.wave; wv.t += dt;
       const r = waveRadius(wv), r2 = r * r;
-      for (const e of G.enemies) if (!e.dead && !wv.hit.has(e) && dist2(e.x, e.y, wv.x, wv.y) < r2) { wv.hit.add(e); damageEnemy(e, e.d.boss ? wv.bossDmg : wv.dmg, true); burst(e.x, e.y, '#5cff5c', 10, 160); }
+      for (const e of G.enemies) if (!e.dead && !e.ally && !wv.hit.has(e) && dist2(e.x, e.y, wv.x, wv.y) < r2) { wv.hit.add(e); damageEnemy(e, e.d.boss ? wv.bossDmg : wv.dmg, true); burst(e.x, e.y, '#5cff5c', 10, 160); }
       for (const b of G.ebullets) if (dist2(b.x, b.y, wv.x, wv.y) < r2) b.dead = true;
       for (const b of G.blocks) if (b.kind === 'crate' && !b.dead && !wv.hit.has(b) && dist2(b.wx - G.scrollX, b.y, wv.x, wv.y) < r2) { wv.hit.add(b); damageBlock(b, 3); }
       if (wv.t > WAVE_TIME) G.wave = null;
@@ -1140,9 +1162,9 @@
     const titleA = clamp(Math.min(t * 6, (THERAPY_TIME - t) * 2), 0, 1);
     ctx.globalAlpha = 0.18 * titleA; ctx.fillStyle = '#ff5ca8'; ctx.fillRect(0, 0, W, H);
     ctx.globalAlpha = titleA; ctx.shadowColor = '#ff5ca8'; ctx.shadowBlur = 16;
-    text('TAILORED THERAPY', W / 2, 92, 22, '#ffffff', 'center', false);
+    text('CAR-T REPROGRAM', W / 2, 92, 22, '#ffffff', 'center', false);
     ctx.shadowBlur = 0;
-    text(th.zapped ? `${th.bolts.length} TREATED` : `TARGETING ${live.length}`, W / 2, 118, 10, '#ffd1e8', 'center');
+    text(th.zapped ? `${th.bolts.length} REPROGRAMMED` : `TARGETING ${live.length}`, W / 2, 118, 10, '#ffd1e8', 'center');
     if (!th.zapped) { // aiming lines from the nose and big reticles closing in on every target
       const k = t / THERAPY_ZAP, r = 70 - 44 * k * k;
       for (const e of live) {
@@ -1202,10 +1224,15 @@
       if (e.type === 'cancer') drawTentacles(e);
       ctx.save();
       if (e.flash > 0) ctx.filter = 'brightness(3)';
+      if (e.ally) { ctx.shadowColor = CHARACTERS.pm.color; ctx.shadowBlur = 18; } // reprogrammed: pink glow, facing Kaiko's way
       const pulse = e.type === 'cancer' ? 1 + Math.sin(e.t * 2.5) * 0.02 : 1;
-      drawSprite(e.d.sprite, e.x, e.y + bob, e.w * pulse, e.h * pulse, !!e.d.flip, e.d.move === 'chase' || e.d.move === 'cell' ? Math.sin(e.t * 4) * 0.08 : 0);
+      drawSprite(e.d.sprite, e.x, e.y + bob, e.w * pulse, e.h * pulse, !!e.d.flip !== !!e.ally, e.d.move === 'chase' || e.d.move === 'cell' ? Math.sin(e.t * 4) * 0.08 : 0);
       ctx.restore();
-      if (!e.d.boss && e.hp < e.maxHp) {
+      if (e.ally) { // time left on the therapy, and a pink + to mark the ally
+        ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(e.x - 22, e.y - e.h / 2 - 8, 44, 5);
+        ctx.fillStyle = CHARACTERS.pm.color; ctx.fillRect(e.x - 22, e.y - e.h / 2 - 8, 44 * e.ally / ALLY_TIME, 5);
+        drawCross(e.x, e.y - e.h / 2 - 18, 10, CHARACTERS.pm.color);
+      } else if (!e.d.boss && e.hp < e.maxHp) {
         ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(e.x - 22, e.y - e.h / 2 - 8, 44, 5);
         ctx.fillStyle = '#ff5c5c'; ctx.fillRect(e.x - 22, e.y - e.h / 2 - 8, 44 * e.hp / e.maxHp, 5);
       }
@@ -1262,7 +1289,7 @@
         ctx.fillStyle = '#fff'; ctx.fillRect(-2, -2, 6, 4);
         ctx.restore();
       } else {
-        ctx.fillStyle = b.kind === 'opus' ? '#ff7ad9' : '#ffe066';
+        ctx.fillStyle = b.kind === 'opus' ? '#ff7ad9' : b.kind === 'ally' ? CHARACTERS.pm.color : '#ffe066';
         ctx.fillRect(b.x - 8, b.y - 3, 16, 6);
         ctx.fillStyle = '#fff'; ctx.fillRect(b.x - 2, b.y - 2, 6, 4);
       }
