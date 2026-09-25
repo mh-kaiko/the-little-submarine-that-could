@@ -52,12 +52,28 @@
     veerle: {
       key: 'veerle', name: 'VEERLE', title: 'MD', sprite: 'kaiko_dome', portrait: 'veerle', color: '#c08cff',
       hatch: { x: 0.73, y: 0.3, size: 0.2 }, // right of the periscope, before the front dome
+      gear: { art: 'scalpel', x: 0.5, y: 0.17, px: 1 / 65 }, // mounted under the dome: centre offset and pixel size as fractions of sub width
       width: 130, hitScale: 0.55, speed: 270, funding: 100, tokens: 110, fireRate: 0.19, tokenRegen: 12, bulletDmg: 1,
       blurb: ['The clinical sub.', 'Balanced hull and speed.', 'Keeps everyone on topic.'],
       special: { name: 'STAY ON TOPIC', cost: 30, cooldown: 12, duration: 8, desc: ['8 seconds of free,', 'homing, piercing shots.', 'Nobody wanders off.'] },
     },
   };
   const PILOTS = Object.keys(CHARACTERS); // select-screen order
+
+  // Pixel art drawn in code, pointing right. '.' is transparent.
+  const GEAR = {
+    scalpel: {
+      pal: { k: '#1b2330', g: '#9aa7b8', G: '#6b7788', w: '#f4f8ff', s: '#c9d3e0' },
+      rows: [
+        'kkkkkkkkkkkkkkkkkkkkkkkkk...',
+        'kgggggggggggggggkwwwwwwwwkk.',
+        'kgGgGgGgGgGgGgGgkswwwwwwwwwk',
+        'kGGGGGGGGGGGGGGGksssswwwwkk.',
+        'kkkkkkkkkkkkkkkkkkkssssskk..',
+        '...................kkkkk....',
+      ],
+    },
+  };
 
   const ENEMIES = {
     datadesk:   { sprite: 'datadesk',   w: 72,  hp: 2,  speed: 110, move: 'sine',   amp: 45, freq: 2.0, shoot: 2.6, bullet: 'doc',    score: 100, name: 'Datadesk' },
@@ -82,6 +98,7 @@
   ];
   const MAX_DEPTH = 4000;
   const DESCENT_RATE = 22; // metres per second
+  const WAVE_TIME = 2.2, WAVE_REACH = 1100; // FUNDRAISE: seconds for the pitch wave to cross the screen
   const DEEP_SCALE = 0.3;   // DEEP THOUGHT: world speed while active; Kaiko keeps full speed
   const TOPIC_FIRE = 0.66;  // STAY ON TOPIC: fire cooldown multiplier (about 1.5x the fire rate)
   const HOMING_TURN = 12.6; // rad/s a homing shot can turn (about 720 degrees per second)
@@ -386,6 +403,7 @@
     Sound.play('shoot');
   }
   // Turn a homing shot toward the nearest living enemy it has not hit yet, keeping its speed.
+  function waveRadius(wv) { const k = clamp(wv.t / WAVE_TIME, 0, 1); return WAVE_REACH * (1 - (1 - k) ** 2); } // eases out: a steady, heavy push
   function steer(b, dt) {
     let best = null, bd = Infinity;
     for (const e of G.enemies) { if (e.dead || (b.hitSet && b.hitSet.has(e))) continue; const d = dist2(b.x, b.y, e.x, e.y); if (d < bd) { bd = d; best = e; } }
@@ -402,12 +420,9 @@
     p.tokens -= s.cost; p.specialCd = s.cooldown;
     Sound.play('special');
     if (c.key === 'thomas') {
-      G.wave = { x: p.x, t: 0 };
+      G.wave = { x: p.x, y: p.y, t: 0, hit: new Set() }; // damage lands as the wave front reaches each enemy
       p.funding = Math.min(p.maxFunding, p.funding + 30);
       addText(p.x, p.y - 60, 'FUNDRAISE! +30 funding', '#5cff5c');
-      for (const e of G.enemies) { damageEnemy(e, e.d.boss ? 6 : 3, true); }
-      for (const b of G.blocks) if (b.kind === 'crate' && b.wx - G.scrollX < W) damageBlock(b, 3);
-      for (const b of G.ebullets) b.dead = true;
     } else if (c.key === 'robert') {
       p.deep = s.duration;
       addText(p.x, p.y - 60, 'DEEP THOUGHT...', c.color);
@@ -704,7 +719,14 @@
       if (hitRect(k, p)) { k.dead = true; applyPickup(k.kind); }
     }
     // pitch wave
-    if (G.wave) { G.wave.t += dt; if (G.wave.t > 0.8) G.wave = null; }
+    if (G.wave) {
+      const wv = G.wave; wv.t += dt;
+      const r = waveRadius(wv), r2 = r * r;
+      for (const e of G.enemies) if (!e.dead && !wv.hit.has(e) && dist2(e.x, e.y, wv.x, wv.y) < r2) { wv.hit.add(e); damageEnemy(e, e.d.boss ? 6 : 3, true); burst(e.x, e.y, '#5cff5c', 10, 160); }
+      for (const b of G.ebullets) if (dist2(b.x, b.y, wv.x, wv.y) < r2) b.dead = true;
+      for (const b of G.blocks) if (b.kind === 'crate' && !b.dead && !wv.hit.has(b) && dist2(b.wx - G.scrollX, b.y, wv.x, wv.y) < r2) { wv.hit.add(b); damageBlock(b, 3); }
+      if (wv.t > WAVE_TIME) G.wave = null;
+    }
     // particles / texts / bubbles
     for (const q of G.particles) { q.t += wdt; q.x += q.vx * wdt; q.y += q.vy * wdt; q.vx *= 0.96; q.vy *= 0.96; if (q.t > q.life) q.dead = true; }
     for (const t of G.texts) { t.t += dt; t.y -= 30 * dt; if (t.t > t.life) t.dead = true; }
@@ -768,6 +790,7 @@
     }
     drawPilotHead(p, c);
     drawSprite(c.sprite, p.x, p.y, p.w, p.h, false, p.tilt);
+    drawGear(p, c);
     if (p.opus > 0) { ctx.save(); ctx.globalAlpha = 0.6; text('OPUS 6', p.x, p.y - p.h / 2 - 12, 8, POWERUPS.opus6.color, 'center'); ctx.restore(); }
     if (p.vortex > 0) { ctx.save(); ctx.globalAlpha = 0.7; text('VORTEX 3', p.x, p.y - p.h / 2 - 24, 8, POWERUPS.vortex3.color, 'center'); ctx.restore(); }
   }
@@ -798,6 +821,16 @@
       }
       ctx.restore();
     }
+  }
+  // Pilot-specific gear bolted onto the sub (Veerle's scalpel). Follows the sub's tilt.
+  function drawGear(p, c) {
+    const g = c.gear, art = g && GEAR[g.art];
+    if (!art) return;
+    const px = p.w * g.px, rw = art.rows[0].length * px, rh = art.rows.length * px;
+    ctx.save(); ctx.translate(p.x, p.y); if (p.tilt) ctx.rotate(p.tilt);
+    ctx.translate(g.x * p.w - rw / 2, g.y * p.w - rh / 2);
+    art.rows.forEach((row, j) => { for (let i = 0; i < row.length; i++) if (row[i] !== '.') { ctx.fillStyle = art.pal[row[i]]; ctx.fillRect(i * px, j * px, px + 0.5, px + 0.5); } });
+    ctx.restore();
   }
   function drawEnemies() {
     for (const e of G.enemies) {
@@ -993,7 +1026,7 @@
     ctx.globalAlpha = 1;
     for (const t of G.texts) { ctx.globalAlpha = clamp(1 - (t.t / t.life - 0.6) / 0.4, 0, 1); text(t.text, t.x, t.y, t.big ? 12 : 9, t.color, 'center'); }
     ctx.globalAlpha = 1;
-    if (G.wave) { const r = G.wave.t / 0.8; ctx.save(); ctx.globalAlpha = 1 - r; ctx.strokeStyle = '#5cff5c'; ctx.lineWidth = 10; ctx.beginPath(); ctx.arc(G.wave.x, G.player.y, r * 1100, -1, 1); ctx.stroke(); ctx.restore(); }
+    if (G.wave) { const wv = G.wave, r = waveRadius(wv), a = 1 - wv.t / WAVE_TIME; ctx.save(); ctx.strokeStyle = '#5cff5c'; ctx.globalAlpha = a; ctx.lineWidth = 14; ctx.beginPath(); ctx.arc(wv.x, wv.y, r, -1.1, 1.1); ctx.stroke(); ctx.globalAlpha = a * 0.35; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(wv.x, wv.y, r * 0.8, -1.1, 1.1); ctx.stroke(); ctx.restore(); }
   }
   function drawHUD() {
     const p = G.player, c = G.char;
@@ -1058,7 +1091,9 @@
       const ph = spriteH(c.portrait, ps); drawSprite(c.portrait, px, py - ps / 2 + ph / 2, ps, ph); ctx.restore();
       ctx.strokeStyle = sel ? c.color : 'rgba(255,255,255,0.25)'; ctx.lineWidth = 3; ctx.strokeRect(px - ps / 2, py - ps / 2, ps, ps);
       const sw = c.width * 0.7;
-      drawSprite(c.sprite, cx + 70, 222 + Math.sin(elapsed * 2 + (sel ? 0 : 1)) * 5, sw, spriteH(c.sprite, sw));
+      const sy = 222 + Math.sin(elapsed * 2 + (sel ? 0 : 1)) * 5;
+      drawSprite(c.sprite, cx + 70, sy, sw, spriteH(c.sprite, sw));
+      drawGear({ x: cx + 70, y: sy, w: sw }, c);
       text(`${c.name} (${c.title})`, cx, 300, 13, c.color, 'center');
       c.blurb.forEach((l, j) => text(l, cx, 322 + j * 14, 8, '#dfe8ff', 'center'));
       text(`FUNDING ${c.funding}  TOKENS ${c.tokens}  SPEED ${c.speed}`, cx, 372, 7, '#9fc3ff', 'center');
@@ -1118,6 +1153,7 @@
     const sub = { x: W / 2, y: H / 2 - 150 + Math.sin(elapsed * 2) * 6, w: sw, h: sh, tilt: 0 };
     drawPilotHead(sub, c);
     drawSprite(c.sprite, sub.x, sub.y, sw, sh);
+    drawGear(sub, c);
     text('CONGRATULATIONS!', W / 2, H / 2 - 62, 26, '#5cff5c', 'center');
     text("You've solved healthcare.", W / 2, H / 2 - 28, 12, '#fff', 'center');
     text('Kaiko is now deployed in every hospital in the EU,', W / 2, H / 2 - 4, 9, '#dfe8ff', 'center');
