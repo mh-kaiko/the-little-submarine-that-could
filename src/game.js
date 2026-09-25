@@ -110,6 +110,7 @@
     { depth: 2601, name: 'ABYSSAL ZONE',   sub: 'Certification run', enemies: [['it', 2], ['legal', 2], ['hospital', 2], ['regulatory', 3], ['gdpr', 3], ['research', 2]] },
     { depth: 4000, name: 'FINAL BOSS',     sub: 'SCARLET review',    boss: 'scarlet' },
   ];
+  const FINAL_BOSS = ZONES.filter(z => z.boss).pop().boss;
   const MAX_DEPTH = 4000;
   const DESCENT_RATE = 22; // metres per second
   const WAVE_TIME = 2.2, WAVE_REACH = 1100; // FUNDRAISE: seconds for the pitch wave to cross the screen
@@ -719,7 +720,7 @@
     if (zone.boss && !G.boss && !G.bossDefeated[zone.boss]) spawnBoss(zone.boss);
     const difficulty = clamp(G.depth / MAX_DEPTH, 0, 1);
     Sound.setTempoDepth(difficulty);
-    Sound.setTrack(G.boss ? 'boss' : 'level');
+    Sound.setTrack(!G.boss ? 'level' : G.boss.type === FINAL_BOSS ? 'final' : 'boss');
 
     // player movement
     let ax = 0, ay = 0;
