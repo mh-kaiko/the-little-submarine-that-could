@@ -52,6 +52,21 @@ python3 -m http.server 8000
 - **Tech debt mines** drift towards you. Shoot them for points or eat 20 funding.
 - **Azure outage clouds** cannot be destroyed. Inside one you are slowed and your tokens drain.
 
+## Obstacles
+
+Cave sections alternate with open water. Scraping a wall costs 8 funding and bounces you off. Walls block both your shots and enemy shots.
+Gaps are never narrower than 180 px and every obstacle leaves 150 px of free water, so pickups are always reachable.
+Walls recede before and during boss fights.
+
+| Zone     | Terrain | Obstacles |
+|----------|---------|-----------|
+| Sunlit   | Coral reef floor, no ceiling | **BACKLOG** ticket piles (destructible) |
+| Twilight | Rocky canyon with a ceiling | Rock pillars, **NDA** filing cabinets |
+| Midnight | Narrower, spiky caves | More rocks, **RED TAPE** boxes |
+| Abyssal  | Tight volcanic trench | **LEGACY** server racks, **BURN RATE** vents that rumble then erupt (15 funding), darkness below 3000 m |
+
+Destructible crates give points and sometimes drop a pickup. Robert's FUNDRAISE hits them too.
+
 ## Depth zones (difficulty curve)
 
 | Depth   | Zone                          | New enemies |
@@ -78,7 +93,7 @@ tools/extract_sprites.py   regenerates assets/sprites from assets/raw (needs Pil
 
 ## Tweaking
 
-All tuning lives at the top of `src/game.js`: `CHARACTERS`, `ENEMIES`, `ZONES`, `POWERUPS`, `DESCENT_RATE`, `MAX_DEPTH`.
+All tuning lives at the top of `src/game.js`: `CHARACTERS`, `ENEMIES`, `ZONES`, `POWERUPS`, `THEMES` (obstacles), `DESCENT_RATE`, `MAX_DEPTH`.
 
 ## Debug / testing URL parameters
 
