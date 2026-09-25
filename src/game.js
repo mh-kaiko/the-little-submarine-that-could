@@ -97,6 +97,19 @@
     mdrcert: { label: 'MDR CERT',     color: '#ffd700', text: 'MDR CERTIFIED! +25% damage',     w: 0 }, // only dropped by the MDR boss
   };
 
+  // Obstacle themes per depth. gap = tunnel height range, slope = max wall rise per px scrolled,
+  // tunnel/open = section lengths in px, rock/crate/vent = feature odds, chamber = odds of a wide room.
+  const THEMES = [
+    { key: 'reef',   depth: 0,    ceiling: false, gap: [0, 0],     slope: 0.35, noise: 6,  tunnel: [1400, 2200], open: [500, 900], rock: 0,    crate: 0.5,  vent: 0,   chamber: 0,
+      wall: '#b8935a', inner: '#8a6a3c', edge: '#e8cf94', accent: ['#ff7a59', '#ff4f8b', '#ffb347'], box: { label: 'BACKLOG', hp: 3, score: 60 } },
+    { key: 'wreck',  depth: 700,  ceiling: true,  gap: [300, 400], slope: 0.5,  noise: 3,  tunnel: [1600, 2600], open: [500, 800], rock: 0.35, crate: 0.35, vent: 0,   chamber: 0.3,
+      wall: '#34405e', inner: '#232c45', edge: '#6a7ba3', accent: ['#b0643a', '#8a4a2a'], box: { label: 'NDA', hp: 5, score: 80 } },
+    { key: 'cave',   depth: 1600, ceiling: true,  gap: [240, 330], slope: 0.7,  noise: 12, tunnel: [2000, 3000], open: [400, 700], rock: 0.4,  crate: 0.3,  vent: 0,   chamber: 0.35,
+      wall: '#2e2446', inner: '#1c1530', edge: '#6b58a0', accent: ['#8e7bd1', '#b8a6ff'], box: { label: 'RED TAPE', hp: 6, score: 100 } },
+    { key: 'trench', depth: 2600, ceiling: true,  gap: [200, 290], slope: 0.85, noise: 8,  tunnel: [2400, 3600], open: [300, 600], rock: 0.25, crate: 0.25, vent: 0.55, chamber: 0.35,
+      wall: '#1e1719', inner: '#110c0e', edge: '#4a3a3c', accent: ['#ff5a1f', '#ffb347'], box: { label: 'LEGACY', hp: 8, score: 120 } },
+  ];
+
   // MDR boss: an audit in stages, keyed to hp. Each threshold ticks a checklist item.
   const MDR_CHECKS = ['CLINICAL EVIDENCE', 'RISK FILE', 'POST-MARKET'];
   const MDR_THRESHOLDS = [0.7, 0.4, 0.15];
@@ -125,6 +138,7 @@
     G.spawnT = 1.5; G.hazardT = 6; G.pickupT = 8; G.zoneIdx = -1; G.banner = null;
     G.boss = null; G.bossDefeated = {}; G.scrollX = 0; G.wave = null; G.endAt = 0; G.drips = []; G.winAt = 0; G.confetti = [];
     for (let i = 0; i < 40; i++) G.bubbles.push({ x: rand(0, W), y: rand(0, H), r: rand(1, 4), s: rand(15, 45) });
+    newTerrain();
   }
 
   // ------------------------------------------------------------ input
@@ -172,9 +186,9 @@
   }
   function spawnEnemy(typeKey, opts = {}) {
     const d = ENEMIES[typeKey];
-    const h = spriteH(d.sprite, d.w);
+    const h = spriteH(d.sprite, d.w), x = opts.x ?? W + d.w;
     const e = {
-      type: typeKey, d, x: opts.x ?? W + d.w, y: opts.y ?? rand(70, H - 70), w: d.w, h,
+      type: typeKey, d, x, y: opts.y ?? randInGap(x, d.w * 0.36, h * 0.36, 70), w: d.w, h,
       hw: d.w * 0.36, hh: h * 0.36, hp: d.hp, maxHp: d.hp, t: rand(0, 6.28), baseY: 0,
       shootT: rand(0.5, d.shoot || 1), dir: Math.random() < 0.5 ? 1 : -1, flash: 0, phase: 0,
     };
@@ -184,12 +198,165 @@
   }
   function spawnHazard() {
     const kind = Math.random() < 0.65 ? 'mine' : 'azure';
-    if (kind === 'mine') G.hazards.push({ kind, x: W + 40, y: rand(60, H - 60), r: 22, hw: 18, hh: 18, t: rand(0, 6), vx: -rand(60, 110) });
-    else G.hazards.push({ kind, x: W + 90, y: rand(80, H - 80), r: 60, hw: 70, hh: 40, t: 0, vx: -rand(35, 55) });
+    if (kind === 'mine') G.hazards.push({ kind, x: W + 40, y: randInGap(W + 40, 18, 18, 60), r: 22, hw: 18, hh: 18, t: rand(0, 6), vx: -rand(60, 110) });
+    else G.hazards.push({ kind, x: W + 90, y: randInGap(W + 90, 70, 40, 80), r: 60, hw: 70, hh: 40, t: 0, vx: -rand(35, 55) });
   }
   function spawnPickup(x, y, kind) {
     kind = kind || weightedPick(Object.entries(POWERUPS).filter(([, v]) => v.w > 0).map(([k, v]) => ({ w: v.w, v: k })));
-    G.pickups.push({ kind, x, y, hw: 16, hh: 16, t: 0, vx: -50, vy: 0 });
+    G.pickups.push({ kind, x, y: safeY(x, 16, y ?? randInGap(x, 16, 16, 60), 16), hw: 16, hh: 16, t: 0, vx: -50, vy: 0 });
+  }
+
+  // ------------------------------------------------------------ terrain
+  // Walls are columns every TSTEP world px: `top` is the ceiling edge, `bot` the floor edge.
+  // Gaps never drop below TMIN and every feature leaves TPASS of open water, so all pickups stay reachable.
+  const TSTEP = 24, TMIN = 180, TPASS = 150, SCROLL = 90, VENT_PERIOD = 3.4;
+  const OPEN_TOP = -60, OPEN_BOT = H - 18;
+  function newTerrain() {
+    G.cols = []; G.blocks = []; G.wtime = 0;
+    G.gen = { wx: -TSTEP, top: OPEN_TOP, bot: OPEN_BOT, tTop: OPEN_TOP, tBot: OPEN_BOT, mode: 'open', left: 600, hold: 0, held: false };
+  }
+  function terrainTheme(depth) { let t = THEMES[0]; for (const th of THEMES) if (depth >= th.depth) t = th; return t; }
+  function genColumn() {
+    const g = G.gen;
+    // depth this column will be at when it reaches the player; walls recede before boss fights
+    const depth = G.depth + Math.max(0, g.wx - G.scrollX - 160) / SCROLL * DESCENT_RATE;
+    const th = terrainTheme(depth);
+    const calm = G.boss || (!G.bossDefeated.mdr && G.depth <= 2600 && depth > 2450) || depth > MAX_DEPTH - 150;
+    g.left -= TSTEP;
+    if (calm) { g.mode = 'open'; g.left = Math.max(g.left, 300); }
+    else if (g.left <= 0 && g.hold === 0) {
+      g.mode = g.mode === 'open' ? 'tunnel' : 'open';
+      g.left = rand(...th[g.mode]);
+      if (g.mode === 'tunnel') pickTarget(th);
+    }
+    if (g.mode === 'open') { g.tTop = OPEN_TOP; g.tBot = OPEN_BOT; g.hold = 0; }
+    else if (g.hold > 0) g.hold--;
+    else if (Math.abs(g.top - g.tTop) < 1 && Math.abs(g.bot - g.tBot) < 1) {
+      if (g.held || !placeFeature(th)) pickTarget(th);
+      g.held = g.hold > 0;
+    }
+    const step = th.slope * TSTEP;
+    g.top += clamp(g.tTop - g.top, -step, step);
+    g.bot += clamp(g.tBot - g.bot, -step, step);
+    const n = g.hold > 0 ? 0 : g.mode === 'open' ? 2 : th.noise;
+    let top = g.top + rand(0, n), bot = g.bot - rand(0, n);
+    if (bot - top < TMIN) { const m = (top + bot) / 2; top = m - TMIN / 2; bot = m + TMIN / 2; }
+    G.cols.push({ wx: g.wx, top, bot, th, seed: Math.random() });
+    g.wx += TSTEP;
+  }
+  function pickTarget(th) {
+    const g = G.gen;
+    g.chamber = th.ceiling && Math.random() < th.chamber;
+    if (!th.ceiling) { g.tTop = OPEN_TOP; g.tBot = rand(H - 200, H - 50); return; }
+    const gap = g.chamber ? rand(400, 460) : rand(th.gap[0], th.gap[1]);
+    const c = rand(gap / 2 - 20, H + 10 - gap / 2);
+    g.tTop = c - gap / 2; g.tBot = c + gap / 2;
+  }
+  // Rocks, crates and vents sit on a flat stretch of wall (held for the feature's width).
+  function placeFeature(th) {
+    const g = G.gen, top = Math.max(g.top, 46), gap = g.bot - top, r = Math.random() * (g.chamber ? th.vent + th.rock : 1);
+    const hold = (w) => { g.hold = Math.ceil(w / TSTEP) + 4; return g.wx + TSTEP + w / 2; };
+    if (r < th.vent && gap >= TPASS + 60) {
+      G.blocks.push({ kind: 'vent', th, wx: hold(44), y: g.bot, hw: 18, hh: 0, maxH: Math.min(gap * 0.5, gap - TPASS), off: rand(0, VENT_PERIOD) });
+      return true;
+    }
+    if (r < th.vent + th.rock && gap >= 2 * TPASS + 50) {
+      const bw = rand(50, 90), bh = rand(50, Math.min(120, gap - 2 * TPASS));
+      const pts = []; for (let i = 0; i < 9; i++) pts.push(rand(0.95, 1.12));
+      G.blocks.push({ kind: 'rock', th, wx: hold(bw), y: rand(top + TPASS + bh / 2, g.bot - TPASS - bh / 2), hw: bw / 2, hh: bh / 2, pts });
+      return true;
+    }
+    if (r < th.vent + th.rock + th.crate && gap >= TPASS + 60) {
+      const ch = rand(56, Math.min(110, gap - TPASS)), onCeil = th.ceiling && g.top > 60 && Math.random() < 0.4;
+      G.blocks.push({ kind: 'crate', th, wx: hold(56), y: onCeil ? g.top + ch / 2 - 4 : g.bot - ch / 2 + 4, hw: 28, hh: ch / 2, hp: th.box.hp, maxHp: th.box.hp, flash: 0 });
+      return true;
+    }
+    return false;
+  }
+  function edgesAt(sx) {
+    const c = G.cols;
+    if (c.length < 2) return { top: OPEN_TOP, bot: OPEN_BOT };
+    const f = (sx + G.scrollX - c[0].wx) / TSTEP, i = clamp(Math.floor(f), 0, c.length - 2), t = clamp(f - i, 0, 1);
+    return { top: lerp(c[i].top, c[i + 1].top, t), bot: lerp(c[i].bot, c[i + 1].bot, t) };
+  }
+  function gapRange(x0, x1) { // tightest ceiling/floor over a horizontal span
+    const a = edgesAt(x0), b = edgesAt(x1), c = G.cols;
+    let top = Math.max(a.top, b.top), bot = Math.min(a.bot, b.bot);
+    if (c.length) {
+      const i1 = Math.min(c.length - 1, Math.floor((x1 + G.scrollX - c[0].wx) / TSTEP));
+      for (let i = Math.max(0, Math.ceil((x0 + G.scrollX - c[0].wx) / TSTEP)); i <= i1; i++) { top = Math.max(top, c[i].top); bot = Math.min(bot, c[i].bot); }
+    }
+    return { top, bot };
+  }
+  function keepInGap(x, hw, y, hh) {
+    const g = gapRange(x - hw, x + hw), lo = g.top + hh, hi = g.bot - hh;
+    return hi < lo ? (g.top + g.bot) / 2 : clamp(y, lo, hi);
+  }
+  function randInGap(x, hw, hh, margin) {
+    const g = gapRange(x - hw, x + hw);
+    const lo = Math.max(margin, g.top + hh + 8), hi = Math.min(H - margin, g.bot - hh - 8);
+    return hi > lo ? rand(lo, hi) : (Math.max(g.top, 0) + Math.min(g.bot, H)) / 2;
+  }
+  // Pickups avoid walls, rocks, crates and vent plumes so they can always be collected.
+  function safeY(x, hw, y, hh) {
+    const pad = 6, g = gapRange(x - hw, x + hw);
+    const lo = Math.max(60, g.top + hh + pad), hi = g.bot - hh - pad;
+    if (hi < lo) return (g.top + g.bot) / 2;
+    y = clamp(y, lo, hi);
+    for (const b of G.blocks) {
+      const dx = b.wx - G.scrollX - x;
+      if (b.dead || dx <= -(hw + b.hw + pad) || dx >= hw + b.hw + 50) continue;
+      const by = b.kind === 'vent' ? b.y - b.maxH / 2 : b.y, bh = b.kind === 'vent' ? b.maxH / 2 : b.hh;
+      if (Math.abs(y - by) >= hh + bh + pad) continue;
+      const up = by - bh - hh - pad, dn = by + bh + hh + pad, upOk = up >= lo, dnOk = dn <= hi;
+      if (upOk && (!dnOk || y - up < dn - y)) y = up; else if (dnOk) y = dn;
+    }
+    return y;
+  }
+  function solidAt(x, y) { // 'wall', a rock/crate, or null
+    const e = edgesAt(x);
+    if (y < e.top || y > e.bot) return 'wall';
+    for (const b of G.blocks) if (!b.dead && b.kind !== 'vent' && Math.abs(x - (b.wx - G.scrollX)) < b.hw && Math.abs(y - b.y) < b.hh) return b;
+    return null;
+  }
+  const ventCycle = (v) => (G.wtime + v.off) % VENT_PERIOD;
+  const ventHeight = (v) => { const c = ventCycle(v); return c < 2.5 ? 0 : v.maxH * Math.min(1, (c - 2.5) / 0.15); };
+  function damageBlock(b, dmg) {
+    b.hp -= dmg; b.flash = 0.08;
+    if (b.hp > 0 || b.dead) return;
+    const x = b.wx - G.scrollX;
+    b.dead = true; G.score += b.th.box.score;
+    addText(x, b.y - b.hh, `${b.th.box.label} CLEARED +${b.th.box.score}`, '#ffe066');
+    burst(x, b.y, b.th.edge, 22, 220); burst(x, b.y, '#ffffff', 8, 160);
+    Sound.play('explode');
+    if (Math.random() < 0.3) spawnPickup(x, b.y);
+  }
+  function updateTerrain(dt) { // dt is world time, so DEEP THOUGHT slows vents too
+    G.wtime += dt;
+    while (G.gen.wx < G.scrollX + W + 400) genColumn();
+    while (G.cols.length > 2 && G.cols[1].wx < G.scrollX - TSTEP) G.cols.shift();
+    G.blocks = G.blocks.filter(b => !b.dead && b.wx - G.scrollX > -150);
+    const p = G.player;
+    for (const b of G.blocks) {
+      b.flash -= dt;
+      const bx = b.wx - G.scrollX;
+      if (b.kind === 'vent') {
+        const h = ventHeight(b);
+        if (h > 0 && Math.abs(p.x - bx) < p.hw + b.hw && p.y + p.hh > b.y - h) { hurtPlayer(15, 'burn rate'); p.vy = Math.min(p.vy, -200); }
+        continue;
+      }
+      const ox = p.hw + b.hw - Math.abs(p.x - bx), oy = p.hh + b.hh - Math.abs(p.y - b.y);
+      if (ox <= 0 || oy <= 0) continue;
+      hurtPlayer(b.kind === 'rock' ? 10 : 8, b.kind === 'rock' ? 'rock' : b.th.box.label.toLowerCase());
+      if (oy < ox || p.x - ox < p.w / 2 - 10) { // push over or under, whichever side has room
+        const g = gapRange(p.x - p.hw, p.x + p.hw), up = b.y - b.hh - p.hh, dn = b.y + b.hh + p.hh;
+        const upOk = up - p.hh >= g.top, dnOk = dn + p.hh <= g.bot;
+        p.y = upOk && (!dnOk || p.y < b.y) ? up : dnOk ? dn : up; p.vy = 0;
+      } else { p.x += p.x < bx ? -ox : ox; p.vx = 0; }
+    }
+    const g = gapRange(p.x - p.hw, p.x + p.hw);
+    if (p.y - p.hh < g.top) { p.y = g.top + p.hh; p.vy = Math.max(p.vy, 150); hurtPlayer(8, 'hull scrape'); }
+    else if (p.y + p.hh > g.bot) { p.y = g.bot - p.hh; p.vy = Math.min(p.vy, -150); hurtPlayer(8, 'hull scrape'); }
   }
   function spawnBoss(key) {
     const b = spawnEnemy(key, { x: W + 200, y: H / 2 });
@@ -239,6 +406,7 @@
       p.funding = Math.min(p.maxFunding, p.funding + 30);
       addText(p.x, p.y - 60, 'FUNDRAISE! +30 funding', '#5cff5c');
       for (const e of G.enemies) { damageEnemy(e, e.d.boss ? 6 : 3, true); }
+      for (const b of G.blocks) if (b.kind === 'crate' && b.wx - G.scrollX < W) damageBlock(b, 3);
       for (const b of G.ebullets) b.dead = true;
     } else if (c.key === 'robert') {
       p.deep = s.duration;
@@ -404,7 +572,7 @@
 
     // depth & zones
     if (!G.boss) G.depth = Math.min(MAX_DEPTH, G.depth + DESCENT_RATE * wdt);
-    G.scrollX += (G.boss ? 40 : 90) * wdt;
+    G.scrollX += (G.boss ? 40 : SCROLL) * wdt;
     const zone = currentZone();
     const zi = ZONES.indexOf(zone);
     if (zi !== G.zoneIdx) {
@@ -428,6 +596,7 @@
     p.vy = lerp(p.vy, ay * c.speed * slowed, 1 - Math.pow(0.001, dt));
     p.x = clamp(p.x + p.vx * dt, p.w / 2 - 10, W - p.w / 2);
     p.y = clamp(p.y + p.vy * dt, p.h / 2, H - p.h / 2);
+    updateTerrain(wdt);
     p.tilt = lerp(p.tilt, p.vy / c.speed * 0.18, 1 - Math.pow(0.01, dt));
     p.fireCd -= dt; p.invuln -= dt; p.shield -= dt; p.opus -= dt; p.vortex -= dt; p.deep -= dt; p.onTopic -= dt; p.specialCd -= dt;
     p.tokens = Math.min(p.maxTokens, p.tokens + c.tokenRegen * dt);
@@ -448,7 +617,7 @@
       if (G.hazardT <= 0) { G.hazardT = lerp(7, 3.5, difficulty) * rand(0.7, 1.3); spawnHazard(); }
     }
     G.pickupT -= wdt;
-    if (G.pickupT <= 0) { G.pickupT = rand(8, 13); spawnPickup(W + 20, rand(60, H - 60)); }
+    if (G.pickupT <= 0) { G.pickupT = rand(8, 13); spawnPickup(W + 20); }
 
     // enemies
     for (const e of G.enemies) {
@@ -467,6 +636,7 @@
         }
       }
       e.y = clamp(e.y, 30, H - 30);
+      if (!d.boss) { const y = keepInGap(e.x, e.hw, e.y, e.hh); if (y !== e.y) { if (d.move === 'zigzag') e.dir = y > e.y ? 1 : -1; e.y = y; } }
       if (d.boss) {
         if (e.type === 'mdr' && !e.entering) mdrThink(e, wdt);
         if (!e.entering) { e.shootT -= wdt; if (e.shootT <= 0) { const next = bossAttack(e); e.shootT = next || (e.hp < e.maxHp * 0.4 ? 1.1 : 1.6); } }
@@ -494,11 +664,17 @@
         }
       }
       if (b.dead) continue;
+      const s = solidAt(b.x, b.y);
+      if (s && s.kind === 'crate') {
+        if (b.kind === 'vortex') { if (!b.hitSet) b.hitSet = new Set(); if (!b.hitSet.has(s)) { b.hitSet.add(s); damageBlock(s, b.dmg); } }
+        else { b.dead = true; damageBlock(s, b.dmg); burst(b.x, b.y, '#ffe066', 4, 120); Sound.play('hit'); continue; }
+      } else if (s && b.kind !== 'vortex') { b.dead = true; burst(b.x, b.y, '#cfd8e8', 3, 90); continue; }
       for (const h of G.hazards) if (h.kind === 'mine' && !h.dead && dist2(b.x, b.y, h.x, h.y) < (h.r + b.r) ** 2) { h.dead = true; b.dead = !b.pierce; burst(h.x, h.y, '#ff5c5c', 20, 220); Sound.play('explode'); G.score += 40; addText(h.x, h.y, 'DEBT CLEARED +40', '#ffe066'); }
     }
     for (const b of G.ebullets) {
       b.t += wdt; b.x += b.vx * wdt; b.y += b.vy * wdt;
       if (b.x < -20 || b.x > W + 60 || b.y < -20 || b.y > H + 20) b.dead = true;
+      if (!b.dead && solidAt(b.x, b.y)) { b.dead = true; burst(b.x, b.y, '#9aa3ad', 3, 80); continue; }
       if (!b.dead && hitRect(b, p)) { b.dead = true; if (p.shield > 0) burst(b.x, b.y, '#ffe066', 5, 100); else hurtPlayer(b.dmg); }
     }
     // conformity scan beams: telegraph, then sweep left draining tokens
@@ -515,12 +691,14 @@
     // hazards
     for (const h of G.hazards) {
       h.t += wdt; h.x += h.vx * wdt;
+      h.y = keepInGap(h.x, h.hw, h.y, h.hh);
       if (h.kind === 'mine') { h.y += Math.sin(h.t * 2) * 20 * wdt; if (hitRect(h, p)) { h.dead = true; burst(h.x, h.y, '#ff5c5c', 24, 240); hurtPlayer(20, 'tech debt'); } }
       if (h.x < -120) h.dead = true;
     }
     // pickups
     for (const k of G.pickups) {
       k.t += wdt; k.x += k.vx * wdt; k.y += Math.sin(k.t * 3) * 25 * wdt;
+      k.y = lerp(k.y, safeY(k.x, k.hw, k.y, k.hh), 1 - Math.pow(1e-6, dt));
       if (k.x < -30) k.dead = true;
       if (hitRect(k, p)) { k.dead = true; applyPickup(k.kind); }
     }
@@ -687,6 +865,116 @@
       ctx.restore();
     }
   }
+  function poly(pts, color) {
+    ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(pts[0], pts[1]);
+    for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+    ctx.closePath(); ctx.fill();
+  }
+  function drawTerrain() {
+    const c = G.cols;
+    for (let i = 0; i < c.length - 1; i++) {
+      const a = c[i], b = c[i + 1], x0 = a.wx - G.scrollX, x1 = b.wx - G.scrollX + 0.5, th = a.th;
+      if (x1 < 0 || x0 > W) continue;
+      if (a.top > -20 || b.top > -20) {
+        poly([x0, -1, x1, -1, x1, b.top, x0, a.top], th.wall);
+        poly([x0, -1, x1, -1, x1, b.top - 14, x0, a.top - 14], th.inner);
+        ctx.strokeStyle = th.edge; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x0, a.top); ctx.lineTo(x1, b.top); ctx.stroke();
+      }
+      poly([x0, a.bot, x1, b.bot, x1, H + 1, x0, H + 1], th.wall);
+      poly([x0, a.bot + 14, x1, b.bot + 14, x1, H + 1, x0, H + 1], th.inner);
+      ctx.strokeStyle = th.edge; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x0, a.bot); ctx.lineTo(x1, b.bot); ctx.stroke();
+      // per-theme decoration, deterministic per column
+      const s = a.seed, col = th.accent[Math.floor(s * 97) % th.accent.length];
+      if (th.key === 'reef') {
+        if (s < 0.45) { ctx.fillStyle = col; for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(x0 + 4 + k * 7, a.bot + 3 - k % 2 * 3, 4 + (s * 10 + k) % 4, 0, 6.283); ctx.fill(); } }
+        else if (s > 0.8) { ctx.strokeStyle = 'rgba(80,190,110,0.8)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x0 + 12, a.bot); for (let k = 1; k <= 4; k++) ctx.lineTo(x0 + 12 + Math.sin(elapsed * 2 + s * 9 + k) * 4, a.bot - k * 5); ctx.stroke(); }
+      } else if (th.key === 'wreck') {
+        ctx.fillStyle = col; if (s < 0.5) { ctx.fillRect(x0 + 8, a.bot + 7, 4, 4); if (a.top > 0) ctx.fillRect(x0 + 8, a.top - 11, 4, 4); }
+      } else if (th.key === 'cave') {
+        if (s < 0.3 && a.top > 0) { ctx.fillStyle = col; ctx.fillRect(x0 + 10, a.top + 2 + (elapsed * 30 + s * 200) % 40, 2, 4); }
+      } else if (th.key === 'trench' && s < 0.5) {
+        ctx.save(); ctx.globalAlpha = 0.5 + 0.5 * Math.sin(elapsed * 3 + s * 20); ctx.strokeStyle = col; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(x0, a.bot + 6); ctx.lineTo(x0 + 10, a.bot + 12); ctx.lineTo(x1, b.bot + 8); ctx.stroke();
+        if (a.top > 0) { ctx.beginPath(); ctx.moveTo(x0, a.top - 6); ctx.lineTo(x0 + 12, a.top - 12); ctx.lineTo(x1, b.top - 7); ctx.stroke(); }
+        ctx.restore();
+      }
+    }
+    for (const b of G.blocks) {
+      const x = b.wx - G.scrollX, th = b.th;
+      if (b.kind === 'vent' || x < -b.hw || x > W + b.hw) continue;
+      if (b.kind === 'rock') {
+        ctx.fillStyle = th.wall; ctx.strokeStyle = th.edge; ctx.lineWidth = 3; ctx.beginPath();
+        b.pts.forEach((r, k) => { const an = k / b.pts.length * 6.283; ctx.lineTo(x + Math.cos(an) * b.hw * r, b.y + Math.sin(an) * b.hh * r); });
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = th.inner; ctx.beginPath(); ctx.ellipse(x + b.hw * 0.15, b.y + b.hh * 0.2, b.hw * 0.45, b.hh * 0.4, 0, 0, 6.283); ctx.fill();
+        continue;
+      }
+      drawCrate(b, x);
+    }
+  }
+  function drawCrate(b, x) {
+    const l = x - b.hw, t = b.y - b.hh, w = b.hw * 2, h = b.hh * 2;
+    switch (b.th.key) {
+      case 'reef': // pile of tickets
+        for (let yy = t; yy < t + h - 2; yy += 9) { ctx.fillStyle = '#f1efe6'; ctx.fillRect(l + (yy % 3), yy, w - 2, 8); ctx.fillStyle = '#4a6bd6'; ctx.fillRect(l + 6, yy + 3, w - 16, 2); }
+        break;
+      case 'wreck': // filing cabinet
+        ctx.fillStyle = '#8f98a3'; ctx.fillRect(l, t, w, h);
+        for (let yy = t + 4; yy < t + h - 10; yy += 26) { ctx.fillStyle = '#6b7380'; ctx.fillRect(l + 4, yy, w - 8, 22); ctx.fillStyle = '#d9dee5'; ctx.fillRect(x - 8, yy + 9, 16, 4); }
+        break;
+      case 'cave': // box wrapped in red tape
+        ctx.fillStyle = '#8a5a3a'; ctx.fillRect(l, t, w, h);
+        ctx.fillStyle = '#d0142c'; ctx.fillRect(x - 5, t, 10, h); ctx.fillRect(l, b.y - 5, w, 10);
+        break;
+      default: // legacy server rack
+        ctx.fillStyle = '#1f2430'; ctx.fillRect(l, t, w, h); ctx.fillStyle = '#3a4152';
+        for (let yy = t + 4; yy < t + h - 8; yy += 12) {
+          ctx.fillStyle = '#3a4152'; ctx.fillRect(l + 4, yy, w - 8, 8);
+          ctx.fillStyle = Math.floor(elapsed * 3 + yy) % 3 ? '#39e67a' : '#ff3b3b'; ctx.fillRect(l + w - 12, yy + 2, 4, 4);
+        }
+    }
+    ctx.strokeStyle = '#0b1020'; ctx.lineWidth = 2; ctx.strokeRect(l, t, w, h);
+    if (b.flash > 0) { ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.fillRect(l, t, w, h); }
+    text(b.th.box.label, x, b.y, 7, '#fff', 'center');
+    if (b.hp < b.maxHp) {
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(x - 22, t - 8, 44, 5);
+      ctx.fillStyle = '#ffb347'; ctx.fillRect(x - 22, t - 8, 44 * b.hp / b.maxHp, 5);
+    }
+  }
+  // "Burn rate" vents: rumble, then erupt; drawn above the darkness so they always read as a warning.
+  function drawVents() {
+    for (const v of G.blocks) {
+      const x = v.wx - G.scrollX;
+      if (v.kind !== 'vent' || x < -40 || x > W + 40) continue;
+      const c = ventCycle(v), h = ventHeight(v), warn = c >= 1.8 && c < 2.5;
+      if (h > 0) {
+        const grd = ctx.createLinearGradient(0, v.y, 0, v.y - h);
+        grd.addColorStop(0, 'rgba(255,200,80,0.95)'); grd.addColorStop(1, 'rgba(255,90,31,0.15)');
+        ctx.fillStyle = grd;
+        for (let yy = 0; yy < h; yy += 8) { const wob = Math.sin(elapsed * 20 + yy * 0.3) * 4; ctx.fillRect(x - v.hw + wob, v.y - yy - 8, v.hw * 2, 8); }
+      } else if (warn) {
+        ctx.fillStyle = 'rgba(255,180,100,0.7)';
+        for (let k = 0; k < 5; k++) { const yy = ((elapsed * 90 + k * 23) % 60); ctx.beginPath(); ctx.arc(x + Math.sin(k * 2 + elapsed * 6) * 8, v.y - 10 - yy, 3, 0, 6.283); ctx.fill(); }
+      }
+      poly([x - 22, v.y + 4, x - 14, v.y - 16, x + 14, v.y - 16, x + 22, v.y + 4], '#2a2224');
+      ctx.fillStyle = warn || h > 0 ? '#ff5a1f' : '#7a3a1a'; ctx.fillRect(x - 14, v.y - 18, 28, 4);
+      if (h === 0) text('BURN RATE', x, v.y - 28, 6, '#ffb347', 'center');
+    }
+  }
+  const darkCv = document.createElement('canvas'); darkCv.width = W; darkCv.height = H;
+  const dctx = darkCv.getContext('2d');
+  function drawDarkness() { // the abyss closes in, the sub's headlight cuts through
+    const a = clamp((G.depth - 3000) / 800, 0, 1) * (G.boss ? 0.35 : 0.72);
+    if (a < 0.01) return;
+    const p = G.player;
+    dctx.globalCompositeOperation = 'source-over'; dctx.clearRect(0, 0, W, H);
+    dctx.fillStyle = `rgba(0,0,6,${a})`; dctx.fillRect(0, 0, W, H);
+    dctx.globalCompositeOperation = 'destination-out';
+    const grd = dctx.createRadialGradient(p.x + 80, p.y, 60, p.x + 80, p.y, 360);
+    grd.addColorStop(0, 'rgba(0,0,0,1)'); grd.addColorStop(1, 'rgba(0,0,0,0)');
+    dctx.fillStyle = grd; dctx.fillRect(0, 0, W, H);
+    ctx.drawImage(darkCv, 0, 0);
+  }
   function drawPickups() {
     for (const k of G.pickups) {
       const def = POWERUPS[k.kind];
@@ -778,7 +1066,7 @@
       c.special.desc.forEach((l, j) => text(l, cx, 408 + j * 11, 7, '#dfe8ff', 'center'));
     });
     if (Math.floor(elapsed * 2) % 2 === 0) text('PRESS ENTER TO DIVE', W / 2, 468, 12, '#fff', 'center');
-    text('Left/Right to choose  ·  Shoot: Space  ·  Special: Shift  ·  Enemies fire back, hazards drain you.', W / 2, 495, 7, '#9fc3ff', 'center');
+    text('Left/Right to choose  ·  Shoot: Space  ·  Special: Shift  ·  Enemies fire back, hazards drain you, walls scrape the hull.', W / 2, 495, 7, '#9fc3ff', 'center');
     text('Funding = HP. Tokens = ammo (they regenerate). Run out of funding and it is game over.', W / 2, 512, 7, '#9fc3ff', 'center');
   }
 
@@ -844,10 +1132,13 @@
     if (state === 'title') { drawTitle(); ctx.restore(); return; }
     drawBackground(clamp(G.depth / MAX_DEPTH, 0, 1), G.scrollX, 1);
     drawBubbles();
+    drawTerrain();
     drawHazards();
     drawBeams();
-    drawPickups();
     drawEnemies();
+    drawDarkness();
+    drawVents();
+    drawPickups();
     if (state !== 'gameover') drawPlayer();
     drawBullets();
     drawEffects();
