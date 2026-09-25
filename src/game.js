@@ -105,6 +105,18 @@
     tcell:      { sprite: 'cancer_cell', w: 40, hp: 2,  speed: 110, move: 'cell',   amp: 0,  freq: 0,   shoot: 0,   bullet: null,     score: 30,  name: 'Tumour cell', flip: true },
     seed:       { sprite: 'cancer_cell', w: 64, hp: 6,  speed: 0,   move: 'seed',   amp: 0,  freq: 0,   shoot: 2.2, bullet: 'spore',  score: 200, name: 'Metastasis' },
   };
+  // Last words. One floats up with the score when an enemy dies.
+  const QUIPS = {
+    datadesk: ['Ticket closed.', 'Please raise a new request.', 'Out of scope.', 'Have you filled in the form?'],
+    it: ['Have you tried turning it off?', 'Works on my machine.', 'Not a bug, a feature.', 'Clearing cache...'],
+    legal: ['Objection!', 'Noted for the record.', 'Consult counsel first.', 'Per my last email.'],
+    research: ['p > 0.05', 'Needs more data.', 'Peer review pending.', 'Interesting, if true.'],
+    hospital: ['Page the registrar.', 'Not in the protocol.', 'Committee adjourned.', 'Take a number.'],
+    regulatory: ['Form 27B missing.', 'Non-compliant!', 'Audit rescheduled.', 'See annex IX.'],
+    gdpr: ['Consent revoked.', 'Right to be forgotten.', 'Article 17 invoked.', 'Cookies declined.'],
+    tcell: ['Apoptosis!', 'Cell cycle arrested.', 'Benign, actually.'],
+    seed: ['Margins clear.', 'Excised.', 'Biopsy negative.'],
+  };
   // Cancer, the final boss: the core (its glowing mouth) is the only real weak point and it opens on a cycle.
   const CANCER_STAGES = [0.7, 0.3]; // growth above 70%, metastasis to 30%, resistance below
   const CANCER_CLOSED = 3.0, CANCER_TELL = 0.5, CANCER_OPEN = 2.0;
@@ -633,6 +645,7 @@
         }
       } else {
         Sound.play('explode'); shake = Math.max(shake, 0.12);
+        if (QUIPS[e.type]) addText(clamp(e.x, 120, W - 120), e.y - e.h / 2 - 18, pick(QUIPS[e.type]), '#dfe8ff');
         if (e.type === 'tcell') { if (Math.random() < 0.05) spawnPickup(e.x, e.y, 'opus6'); } // clearing cells earns targeted therapy
         else if (Math.random() < 0.22) spawnPickup(e.x, e.y);
       }
@@ -647,12 +660,18 @@
     const colors = [...PILOTS.map(k => CHARACTERS[k].color), '#5cff5c', '#ffffff'];
     return Array.from({ length: 120 }, () => ({ x: rand(0, W), y0: rand(-H, -10), vy: rand(60, 140), sway: rand(10, 40), f: rand(1, 3), spin: rand(2, 8), size: rand(5, 9), color: pick(colors) }));
   }
+  // Confetti that has landed on the hull: sits there bobbing with the sub, then lets go one piece at a time.
+  function makeStuck() {
+    const colors = ['#ff5ca8', '#4fd1ff', '#ffe066', '#5cff5c', '#ffffff', '#ffb347'];
+    return Array.from({ length: 28 }, () => ({ fx: rand(-0.44, 0.44), fy: rand(-0.42, -0.1), size: rand(5, 8), color: pick(colors), rot: rand(0, 6.28), drop: rand(1.2, 3.2), vx: rand(-40, 40), spin: rand(-6, 6) }));
+  }
   // The single way a run ends: freezes play and stamps the time the end screen animates from.
   function endRun(win) {
     state = win ? 'win' : 'gameover'; G.endAt = elapsed;
     Sound.stopMusic(); Sound.play(win ? 'win' : 'gameover');
     G.drips = win ? [] : makeDrips();
     G.confetti = win ? makeConfetti() : [];
+    G.stuck = win ? makeStuck() : [];
   }
   // HUD bar geometry, shared by the bars and the effects that fly into or fall off them.
   const HUD_BARS = { funding: { x: 16, y: 22, w: 220, h: 12 }, tokens: { x: 262, y: 22, w: 220, h: 12 } };
@@ -1719,6 +1738,24 @@
       ctx.restore();
     }
   }
+  // A pixel party hat, tip up, sized to the pilot's head. (x, y) is the centre of the hat's brim.
+  function drawPartyHat(x, y, w) {
+    const rows = 9, px = w / 9, stripes = ['#ff5ca8', '#ffe066', '#4fd1ff'];
+    ctx.save(); ctx.translate(x, y);
+    for (let r = 0; r < rows; r++) { const rw = Math.max(1, Math.round((r + 1) * 9 / rows)); ctx.fillStyle = stripes[Math.floor(r / 3) % stripes.length]; ctx.fillRect(-rw * px / 2, (r - rows) * px, rw * px, px + 0.5); }
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(-px * 1.5, -rows * px - px * 2, px * 3, px * 2); // pompom
+    ctx.fillStyle = '#0b1020'; ctx.fillRect(-4.5 * px, -px * 0.5, 9 * px, px * 0.7); // brim
+    ctx.restore();
+  }
+  function drawStuckConfetti(sub, t) {
+    for (const q of G.stuck || []) {
+      const x0 = sub.x + q.fx * sub.w, y0 = sub.y + q.fy * sub.h;
+      let x = x0, y = y0, rot = q.rot, a = 1;
+      if (t > q.drop) { const d = t - q.drop; x += q.vx * d; y += 260 * d * d; rot += q.spin * d; a = clamp(1.6 - d, 0, 1); }
+      if (a <= 0 || y > H + 10) continue;
+      ctx.save(); ctx.globalAlpha = a; ctx.translate(x, y); ctx.rotate(rot); ctx.fillStyle = q.color; ctx.fillRect(-q.size / 2, -q.size / 4, q.size, q.size / 2); ctx.restore();
+    }
+  }
   function drawCross(x, y, size, color) { // pixel medical cross
     const t = size / 3; ctx.fillStyle = color; ctx.fillRect(x - t / 2, y - size / 2, t, size); ctx.fillRect(x - size / 2, y - t / 2, size, t);
   }
@@ -1727,8 +1764,14 @@
     const t = elapsed - G.endAt, c = G.char, sw = c.width * 1.1, sh = spriteH(c.sprite, sw);
     const sub = { x: W / 2, y: H / 2 - 170 + Math.sin(elapsed * 2) * 6, w: sw, h: sh, tilt: 0 };
     drawPilotHead(sub, c);
+    if (c.hatch) { // party hat on the pilot's head, sized to the portrait
+      const size = sw * c.hatch.size, hx = sub.x + (c.hatch.x - 0.5) * sw, hy = sub.y + (c.hatch.y - 0.5) * sh - size * 0.62 + Math.sin(elapsed * 5) * size * 0.04;
+      drawPartyHat(hx, hy, size * 0.8);
+    }
     drawSprite(c.sprite, sub.x, sub.y, sw, sh);
     drawGear(sub, c);
+    drawStuckConfetti(sub, t);
+    if (t < 0.5) { ctx.fillStyle = `rgba(255,255,255,${(1 - t / 0.5) * 0.85})`; ctx.fillRect(0, 0, W, H); } // camera flash: say cheese
     text('CONGRATULATIONS!', W / 2, H / 2 - 100, 14, '#5cff5c', 'center');
     // the headline: healthcare, solved, glowing between two pulsing medical crosses
     const head = "YOU'VE SOLVED HEALTHCARE", pulse = 0.5 + 0.5 * Math.sin(t * 3), hy = H / 2 - 62;
