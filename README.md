@@ -8,6 +8,12 @@ Datadesk, IT, Legal, Dept. Hospital, Research, Regulatory, GDPR, and the bosses 
 - **Token limit = mana.** Every shot costs tokens. Tokens regenerate.
 - **Depth = progress.** The ocean gets darker and enemies get nastier as you descend.
 
+## Play it online
+
+The `game-mechanism` branch is published with GitHub Pages:
+**https://mh-kaiko.github.io/the-little-submarine-that-could/**
+Every push to that branch redeploys within about a minute. The debug URL parameters below work there too.
+
 ## Run it
 
 No build step. Serve the folder with any static file server and open it in a browser:
