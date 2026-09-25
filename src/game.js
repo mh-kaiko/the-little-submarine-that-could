@@ -9,7 +9,7 @@
 
   // ------------------------------------------------------------ assets
   const IMG = {};
-  const SPRITES = ['kaiko_sub', 'kaiko_mini', 'robert', 'thomas', 'datadesk', 'legal', 'hospital', 'research', 'it', 'regulatory', 'gdpr', 'mdr', 'scarlet'];
+  const SPRITES = ['kaiko_sub', 'kaiko_mini', 'kaiko_dome', 'robert', 'thomas', 'veerle', 'datadesk', 'legal', 'hospital', 'research', 'it', 'regulatory', 'gdpr', 'mdr', 'scarlet'];
   function loadAssets(done) {
     let left = SPRITES.length + 1;
     const one = () => { if (--left === 0) done(); };
@@ -35,21 +35,29 @@
 
   // ------------------------------------------------------------ definitions
   const CHARACTERS = {
-    robert: {
-      key: 'robert', name: 'ROBERT', title: 'CEO', sprite: 'kaiko_sub', portrait: 'robert', color: '#ffb300',
+    thomas: {
+      key: 'thomas', name: 'THOMAS', title: 'CEO', sprite: 'kaiko_sub', portrait: 'thomas', color: '#ffb300',
       hatch: { x: 0.53, y: 0.225, size: 0.2 }, // where the pilot pokes out: fraction of sprite w/h, head width as fraction of w
       width: 150, hitScale: 0.55, speed: 230, funding: 120, tokens: 100, fireRate: 0.22, tokenRegen: 11, bulletDmg: 1.2,
       blurb: ['The big Kaiko sub.', 'More funding, tougher hull,', 'a bit slower.'],
       special: { name: 'FUNDRAISE', cost: 40, cooldown: 12, desc: ['Pitch wave hits every enemy', 'on screen and converts', '40 tokens into 30 funding.'] },
     },
-    thomas: {
-      key: 'thomas', name: 'THOMAS', title: 'CTO', sprite: 'kaiko_mini', portrait: 'thomas', color: '#4fd1ff',
+    robert: {
+      key: 'robert', name: 'ROBERT', title: 'CTO', sprite: 'kaiko_mini', portrait: 'robert', color: '#4fd1ff',
       hatch: { x: 0.48, y: 0.36, size: 0.26 },
       width: 110, hitScale: 0.55, speed: 310, funding: 85, tokens: 120, fireRate: 0.16, tokenRegen: 14, bulletDmg: 1,
       blurb: ['The nimble scout sub.', 'Faster, cheaper shots,', 'thinner hull.'],
-      special: { name: 'HOTFIX', cost: 35, cooldown: 12, desc: ['Invincible for 5 seconds', 'and double fire rate.', 'Ship it.'] },
+      special: { name: 'DEEP THOUGHT', cost: 35, cooldown: 15, duration: 4, desc: ['Slow the whole ocean to 30%', 'for 4 seconds.', 'Kaiko keeps full speed.'] },
+    },
+    veerle: {
+      key: 'veerle', name: 'VEERLE', title: 'MD', sprite: 'kaiko_dome', portrait: 'veerle', color: '#c08cff',
+      hatch: { x: 0.6, y: 0.28, size: 0.2 },
+      width: 130, hitScale: 0.55, speed: 270, funding: 100, tokens: 110, fireRate: 0.19, tokenRegen: 12, bulletDmg: 1,
+      blurb: ['The clinical sub.', 'Balanced hull and speed.', 'Keeps everyone on topic.'],
+      special: { name: 'STAY ON TOPIC', cost: 30, cooldown: 12, duration: 8, desc: ['8 seconds of free,', 'homing, piercing shots.', 'Nobody wanders off.'] },
     },
   };
+  const PILOTS = Object.keys(CHARACTERS); // select-screen order
 
   const ENEMIES = {
     datadesk:   { sprite: 'datadesk',   w: 72,  hp: 2,  speed: 110, move: 'sine',   amp: 45, freq: 2.0, shoot: 2.6, bullet: 'doc',    score: 100, name: 'Datadesk' },
@@ -93,7 +101,7 @@
   // ------------------------------------------------------------ state
   let TURBO = 1, GOD = false; // debug: ?turbo=n fast-forwards, ?god=1 makes the pilot unhurtable
   let state = 'title';
-  let selected = 'robert';
+  let selected = 'thomas';
   let keys = {};
   let lastTime = 0, elapsed = 0;
   let shake = 0, flash = 0;
@@ -106,7 +114,7 @@
       x: 160, y: H / 2, vx: 0, vy: 0, w: c.width, h: spriteH(c.sprite, c.width),
       hw: c.width * c.hitScale / 2, hh: spriteH(c.sprite, c.width) * c.hitScale / 2,
       funding: c.funding, maxFunding: c.funding, tokens: c.tokens, maxTokens: c.tokens,
-      fireCd: 0, invuln: 0, shield: 0, opus: 0, vortex: 0, hotfix: 0, specialCd: 0, tilt: 0,
+      fireCd: 0, invuln: 0, shield: 0, opus: 0, vortex: 0, deep: 0, onTopic: 0, specialCd: 0, tilt: 0,
     };
     G.bullets = []; G.ebullets = []; G.enemies = []; G.hazards = []; G.pickups = []; G.beams = [];
     G.particles = []; G.texts = []; G.bubbles = [];
@@ -129,15 +137,17 @@
     const r = canvas.getBoundingClientRect();
     const x = (e.clientX - r.left) * W / r.width, y = (e.clientY - r.top) * H / r.height;
     if (state === 'title') {
-      if (y > 150 && y < 440) { selected = x < W / 2 ? 'robert' : 'thomas'; Sound.play('select'); }
+      if (y > 150 && y < 440) { selected = PILOTS[clamp(Math.floor(x / (W / PILOTS.length)), 0, PILOTS.length - 1)]; Sound.play('select'); }
       if (y >= 450) startGame();
     } else if (state === 'gameover' || state === 'win') { state = 'title'; }
   });
   function onKey(code) {
     if (code === 'KeyM') { Sound.toggleMute(); return; }
     if (state === 'title') {
-      if (code === 'ArrowLeft' || code === 'KeyA' || code === 'Digit1') { selected = 'robert'; Sound.play('select'); }
-      if (code === 'ArrowRight' || code === 'KeyD' || code === 'Digit2') { selected = 'thomas'; Sound.play('select'); }
+      const i = PILOTS.indexOf(selected), n = PILOTS.length;
+      if (code === 'ArrowLeft' || code === 'KeyA') { selected = PILOTS[(i + n - 1) % n]; Sound.play('select'); }
+      if (code === 'ArrowRight' || code === 'KeyD') { selected = PILOTS[(i + 1) % n]; Sound.play('select'); }
+      if (/^Digit[1-9]$/.test(code) && PILOTS[+code.slice(5) - 1]) { selected = PILOTS[+code.slice(5) - 1]; Sound.play('select'); }
       if (code === 'Enter' || code === 'Space') startGame();
     } else if (state === 'play') {
       if (code === 'KeyP' || code === 'Escape') state = 'paused';
@@ -199,25 +209,28 @@
     const cost = 3;
     if (p.tokens < cost) { if (Math.random() < 0.3) addText(p.x, p.y - 50, 'TOKEN LIMIT!', '#ff6b6b'); Sound.play('denied'); p.fireCd = 0.25; return; }
     p.tokens -= cost;
-    p.fireCd = c.fireRate * (p.hotfix > 0 ? 0.5 : 1);
+    p.fireCd = c.fireRate;
     const angles = p.opus > 0 ? [-0.22, 0, 0.22] : [0];
     for (const a of angles) G.bullets.push({ x: p.x + p.w * 0.45, y: p.y + 4, vx: Math.cos(a) * 620, vy: Math.sin(a) * 620, r: 5, dmg: c.bulletDmg * mult, pierce: false, kind: p.opus > 0 ? 'opus' : 'token', t: 0 });
     Sound.play('shoot');
   }
   function useSpecial() {
-    const p = G.player, s = G.char.special;
+    const p = G.player, c = G.char, s = c.special;
     if (p.specialCd > 0 || p.tokens < s.cost) { Sound.play('denied'); addText(p.x, p.y - 50, p.specialCd > 0 ? 'COOLDOWN' : 'NOT ENOUGH TOKENS', '#ff6b6b'); return; }
     p.tokens -= s.cost; p.specialCd = s.cooldown;
     Sound.play('special');
-    if (G.char.key === 'robert') {
+    if (c.key === 'thomas') {
       G.wave = { x: p.x, t: 0 };
       p.funding = Math.min(p.maxFunding, p.funding + 30);
       addText(p.x, p.y - 60, 'FUNDRAISE! +30 funding', '#5cff5c');
       for (const e of G.enemies) { damageEnemy(e, e.d.boss ? 6 : 3, true); }
       for (const b of G.ebullets) b.dead = true;
+    } else if (c.key === 'robert') {
+      p.deep = s.duration;
+      addText(p.x, p.y - 60, 'DEEP THOUGHT...', c.color);
     } else {
-      p.hotfix = 5; p.shield = Math.max(p.shield, 5);
-      addText(p.x, p.y - 60, 'HOTFIX DEPLOYED', '#4fd1ff');
+      p.onTopic = s.duration;
+      addText(p.x, p.y - 60, 'STAY ON TOPIC!', c.color);
     }
   }
   function addText(x, y, text, color, big) { G.texts.push({ x, y, text, color, t: 0, life: 1.4, big }); }
@@ -383,7 +396,7 @@
     p.x = clamp(p.x + p.vx * dt, p.w / 2 - 10, W - p.w / 2);
     p.y = clamp(p.y + p.vy * dt, p.h / 2, H - p.h / 2);
     p.tilt = lerp(p.tilt, p.vy / c.speed * 0.18, 1 - Math.pow(0.01, dt));
-    p.fireCd -= dt; p.invuln -= dt; p.shield -= dt; p.opus -= dt; p.vortex -= dt; p.hotfix -= dt; p.specialCd -= dt;
+    p.fireCd -= dt; p.invuln -= dt; p.shield -= dt; p.opus -= dt; p.vortex -= dt; p.deep -= dt; p.onTopic -= dt; p.specialCd -= dt;
     p.tokens = Math.min(p.maxTokens, p.tokens + c.tokenRegen * dt);
     if (keys.Space) shoot();
     // azure drains tokens
@@ -664,7 +677,7 @@
     text(`DEPTH ${Math.floor(G.depth)}m`, W - 16, 32, 10, '#cfe3ff', 'right');
     // active buffs
     let bx = 16, by = 60;
-    const buffs = [['OPUS 6', p.opus, POWERUPS.opus6.color], ['VORTEX 3', p.vortex, POWERUPS.vortex3.color], ['INVINCIBLE', p.shield, POWERUPS.shield.color], ['HOTFIX', p.hotfix, '#4fd1ff']];
+    const buffs = [['OPUS 6', p.opus, POWERUPS.opus6.color], ['VORTEX 3', p.vortex, POWERUPS.vortex3.color], ['INVINCIBLE', p.shield, POWERUPS.shield.color], ['DEEP THOUGHT', p.deep, CHARACTERS.robert.color], ['STAY ON TOPIC', p.onTopic, CHARACTERS.veerle.color]];
     for (const [n, t, col] of buffs) if (t > 0) { text(`${n} ${Math.ceil(t)}s`, bx, by, 8, col, 'left'); by += 14; }
     if (p.certified) { text('MDR CERTIFIED +25% DMG', bx, by, 8, POWERUPS.mdrcert.color, 'left'); by += 14; }
     // depth gauge on the right
@@ -704,23 +717,24 @@
     text('KAIKO', W / 2, 52, 34, '#ffb300', 'center');
     text('THE LITTLE SUBMARINE THAT COULD', W / 2, 88, 12, '#cfe3ff', 'center');
     text('CHOOSE YOUR PILOT', W / 2, 130, 12, '#fff', 'center');
-    for (const [i, key] of [['0', 'robert'], ['1', 'thomas']]) {
-      const c = CHARACTERS[key], cx = i === '0' ? W / 4 : 3 * W / 4, sel = selected === key;
-      ctx.fillStyle = sel ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.35)'; ctx.fillRect(cx - 200, 150, 400, 295);
-      if (sel) { ctx.strokeStyle = c.color; ctx.lineWidth = 4; ctx.strokeRect(cx - 200, 150, 400, 295); }
+    PILOTS.forEach((key, i) => {
+      const c = CHARACTERS[key], cx = 160 + i * 320, sel = selected === key;
+      ctx.fillStyle = sel ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.35)'; ctx.fillRect(cx - 150, 150, 300, 295);
+      if (sel) { ctx.strokeStyle = c.color; ctx.lineWidth = 4; ctx.strokeRect(cx - 150, 150, 300, 295); }
       // pilot portrait (pixel-art headshot) on the left, their sub on the right
-      const px = cx - 110, py = 222, ps = 124;
+      const px = cx - 80, py = 222, ps = 96;
       ctx.fillStyle = '#0a1a4a'; ctx.fillRect(px - ps / 2, py - ps / 2, ps, ps);
-      drawSprite(c.portrait, px, py, ps, ps);
+      ctx.save(); ctx.beginPath(); ctx.rect(px - ps / 2, py - ps / 2, ps, ps); ctx.clip(); // keep the aspect ratio, crop to the square
+      const ph = spriteH(c.portrait, ps); drawSprite(c.portrait, px, py - ps / 2 + ph / 2, ps, ph); ctx.restore();
       ctx.strokeStyle = sel ? c.color : 'rgba(255,255,255,0.25)'; ctx.lineWidth = 3; ctx.strokeRect(px - ps / 2, py - ps / 2, ps, ps);
-      const sw = c.width * 0.85;
-      drawSprite(c.sprite, cx + 75, 222 + Math.sin(elapsed * 2 + (sel ? 0 : 1)) * 5, sw, spriteH(c.sprite, sw));
+      const sw = c.width * 0.7;
+      drawSprite(c.sprite, cx + 70, 222 + Math.sin(elapsed * 2 + (sel ? 0 : 1)) * 5, sw, spriteH(c.sprite, sw));
       text(`${c.name} (${c.title})`, cx, 300, 13, c.color, 'center');
       c.blurb.forEach((l, j) => text(l, cx, 322 + j * 14, 8, '#dfe8ff', 'center'));
       text(`FUNDING ${c.funding}  TOKENS ${c.tokens}  SPEED ${c.speed}`, cx, 372, 7, '#9fc3ff', 'center');
       text(`SPECIAL: ${c.special.name}`, cx, 392, 9, '#ffe066', 'center');
       c.special.desc.forEach((l, j) => text(l, cx, 408 + j * 11, 7, '#dfe8ff', 'center'));
-    }
+    });
     if (Math.floor(elapsed * 2) % 2 === 0) text('PRESS ENTER TO DIVE', W / 2, 468, 12, '#fff', 'center');
     text('Left/Right to choose  ·  Shoot: Space  ·  Special: Shift  ·  Enemies fire back, hazards drain you.', W / 2, 495, 7, '#9fc3ff', 'center');
     text('Funding = HP. Tokens = ammo (they regenerate). Run out of funding and it is game over.', W / 2, 512, 7, '#9fc3ff', 'center');
@@ -764,10 +778,11 @@
   }
   ctx.fillStyle = '#0a1a4a'; ctx.fillRect(0, 0, W, H);
   text('LOADING...', W / 2, H / 2, 14, '#fff', 'center');
-  // Debug/testing hooks: ?pilot=robert|thomas&autostart=1&depth=2600&autofire=1&turbo=30&god=1
+  // Debug/testing hooks: ?pilot=thomas|robert|veerle&autostart=1&depth=2600&autofire=1&turbo=30&god=1&debug=1
   const Q = new URLSearchParams(location.search);
   TURBO = clamp(parseInt(Q.get('turbo') || '1', 10) || 1, 1, 200);
   GOD = !!Q.get('god');
+  if (Q.get('debug')) window.KAIKO = { G, CHARACTERS, get state() { return state; } };
   loadAssets(() => {
     if (Q.get('autostart')) {
       selected = CHARACTERS[Q.get('pilot')] ? Q.get('pilot') : selected;
