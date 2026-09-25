@@ -114,6 +114,35 @@
     mdrcert: { label: 'MDR CERT',     color: '#ffd700', text: 'MDR CERTIFIED! +25% damage',     w: 0 }, // only dropped by the MDR boss
   };
 
+  // Corners cut: startup shortcuts chosen before the dive. Each makes Kaiko stronger and the ocean
+  // deadlier. The number taken is the risk level, which multiplies score. apply(m) edits the run's
+  // modifier set (see neutralMods); anything only a multiplier needs no other code.
+  const RISKS = [
+    { key: 'noeval',      tag: 'NO EVAL',     label: 'NO QUANTITATIVE EVALUATION', up: 'Speed +50%',               down: 'All damage taken is doubled',
+      apply: m => { m.speed *= 1.5; m.dmgTaken *= 2; } },
+    { key: 'noclin',      tag: 'NO CLINICAL', label: 'SKIP CLINICAL VALIDATION',   up: 'Your shots do +50% damage', down: 'Bosses have +60% hp',
+      apply: m => { m.bulletDmg *= 1.5; m.bossHp *= 1.6; } },
+    { key: 'nodata',      tag: 'DATA GRAB',   label: 'TRAIN ON UNCONSENTED DATA',  up: 'Pickups twice as often',    down: 'GDPR and Legal spawn double and hit double',
+      apply: m => { m.pickupRate *= 2; m.enemyWeight.gdpr *= 2; m.enemyWeight.legal *= 2; m.enemyDmg.gdpr *= 2; m.enemyDmg.legal *= 2; } },
+    { key: 'oneregion',   tag: 'ONE REGION',  label: 'SINGLE AZURE REGION',        up: 'Token pool and regen +60%', down: 'Outages twice as common and drain funding',
+      apply: m => { m.maxTokens *= 1.6; m.tokenRegen *= 1.6; m.hazardRate *= 2; m.azureFunding = true; } },
+    { key: 'hotfix',      tag: 'HOTFIX PROD', label: 'HOTFIX STRAIGHT TO PROD',    up: 'Shots cost zero tokens',    down: '8% of shots misfire and cost 5 funding',
+      apply: m => { m.tokenCost = 0; m.misfire = 0.08; } },
+    { key: 'overpromise', tag: 'OVERPROMISE', label: 'OVERPROMISE TO INVESTORS',   up: 'Start with 200% funding',   down: 'Funding burns 2 per second, live on Series C',
+      apply: m => { m.fundingStart *= 2; m.burn += 2; } },
+    { key: 'nosec',       tag: 'NO SECURITY', label: 'SKIP SECURITY REVIEW',       up: 'Special has no cooldown',   down: 'Tech debt mines home in on you',
+      apply: m => { m.specialCd = 0; m.homingMines = true; } },
+  ];
+  const RISK_LEVELS = [['SAFE', 1, '#9fc3ff'], ['BOLD', 1.3, '#5cff5c'], ['RECKLESS', 1.7, '#ffe066'], ['YOLO', 2.2, '#ff8a3d'], ['UNINSURABLE', 3, '#ff4d4d']];
+  function riskLevel(n) { const [name, mult, color] = RISK_LEVELS[Math.min(n, RISK_LEVELS.length - 1)]; return { name, mult, color }; }
+  function neutralMods() {
+    const enemyWeight = {}, enemyDmg = {};
+    for (const k of Object.keys(ENEMIES)) { enemyWeight[k] = 1; enemyDmg[k] = 1; }
+    return { speed: 1, dmgTaken: 1, bulletDmg: 1, tokenCost: 3, tokenRegen: 1, maxTokens: 1, fundingStart: 1, bossHp: 1, pickupRate: 1, hazardRate: 1,
+      specialCd: 1, enemyWeight, enemyDmg, azureFunding: false, misfire: 0, burn: 0, homingMines: false };
+  }
+  const RISK_Y0 = 104, RISK_ROW = 44; // risk screen row layout, shared by drawing and pointer input
+
   // Obstacle themes per depth. gap = tunnel height range, slope = max wall rise per px scrolled,
   // tunnel/open = section lengths in px, rock/crate/vent = feature odds, chamber = odds of a wide room.
   const THEMES = [
@@ -136,6 +165,7 @@
   let START_DEPTH = 0; // debug: ?depth=N starts every run (select, R retry, autostart) at N metres
   let state = 'title';
   let selected = 'thomas';
+  let riskSel = new Set(), riskCursor = 0; // chosen shortcuts persist across retries
   let keys = {};
   let lastTime = 0, elapsed = 0;
   let shake = 0, flash = 0;
@@ -144,10 +174,15 @@
   function newGame(charKey) {
     const c = CHARACTERS[charKey];
     G.char = c;
+    const m = neutralMods();
+    G.risks = RISKS.filter(r => riskSel.has(r.key));
+    for (const r of G.risks) r.apply(m);
+    G.mods = m; G.riskMult = riskLevel(G.risks.length).mult;
+    const funding = Math.round(c.funding * m.fundingStart), tokens = Math.round(c.tokens * m.maxTokens);
     G.player = {
       x: 160, y: H / 2, vx: 0, vy: 0, w: c.width, h: spriteH(c.sprite, c.width),
       hw: c.width * c.hitScale / 2, hh: spriteH(c.sprite, c.width) * c.hitScale / 2,
-      funding: c.funding, maxFunding: c.funding, tokens: c.tokens, maxTokens: c.tokens,
+      funding, maxFunding: funding, tokens, maxTokens: tokens,
       fireCd: 0, invuln: 0, shield: 0, opus: 0, vortex: 0, deep: 0, onTopic: 0, specialCd: 0, tilt: 0,
     };
     G.bullets = []; G.ebullets = []; G.enemies = []; G.hazards = []; G.pickups = []; G.beams = [];
@@ -173,7 +208,11 @@
     const x = (e.clientX - r.left) * W / r.width, y = (e.clientY - r.top) * H / r.height;
     if (state === 'title') {
       if (y > 150 && y < 440) { selected = PILOTS[clamp(Math.floor(x / (W / PILOTS.length)), 0, PILOTS.length - 1)]; Sound.play('select'); }
-      if (y >= 450) startGame();
+      if (y >= 450) { state = 'risks'; Sound.play('select'); }
+    } else if (state === 'risks') {
+      const i = Math.floor((y - RISK_Y0 + 18) / RISK_ROW);
+      if (i >= 0 && i < RISKS.length && x > 60 && x < W - 60) { riskCursor = i; toggleRisk(i); }
+      else if (y >= 470) startGame();
     } else if (state === 'gameover' || state === 'win') toTitle();
   });
   function onKey(code) {
@@ -183,7 +222,15 @@
       if (code === 'ArrowLeft' || code === 'KeyA') { selected = PILOTS[(i + n - 1) % n]; Sound.play('select'); }
       if (code === 'ArrowRight' || code === 'KeyD') { selected = PILOTS[(i + 1) % n]; Sound.play('select'); }
       if (/^Digit[1-9]$/.test(code) && PILOTS[+code.slice(5) - 1]) { selected = PILOTS[+code.slice(5) - 1]; Sound.play('select'); }
-      if (code === 'Enter' || code === 'Space') startGame();
+      if (code === 'Enter' || code === 'Space') { state = 'risks'; Sound.play('select'); }
+    } else if (state === 'risks') {
+      const n = RISKS.length;
+      if (code === 'ArrowUp' || code === 'KeyW') { riskCursor = (riskCursor + n - 1) % n; Sound.play('select'); }
+      if (code === 'ArrowDown' || code === 'KeyS') { riskCursor = (riskCursor + 1) % n; Sound.play('select'); }
+      if (code === 'Space') toggleRisk(riskCursor);
+      if (/^Digit[1-9]$/.test(code) && RISKS[+code.slice(5) - 1]) toggleRisk(+code.slice(5) - 1);
+      if (code === 'Enter') startGame();
+      if (code === 'Escape' || code === 'Backspace') state = 'title';
     } else if (state === 'play') {
       if (code === 'KeyP' || code === 'Escape') state = 'paused';
       if (code === 'ShiftLeft' || code === 'ShiftRight') useSpecial();
@@ -195,9 +242,11 @@
     }
   }
   function toTitle() { state = 'title'; shake = 0; flash = 0; } // the game-over shake must not follow you to the title
+  function toggleRisk(i) { const k = RISKS[i].key; if (riskSel.has(k)) riskSel.delete(k); else riskSel.add(k); Sound.play('select'); }
   function startGame() { newGame(selected); state = 'play'; Sound.startMusic(); Sound.play('select'); }
 
   // ------------------------------------------------------------ spawning
+  const pickZoneEnemy = (zone) => weightedPick(zone.enemies.map(([k, w]) => ({ w: w * G.mods.enemyWeight[k], v: k })));
   function currentZone() {
     let z = ZONES[0];
     for (const zone of ZONES) if (G.depth >= zone.depth) z = zone;
@@ -344,8 +393,8 @@
     b.hp -= dmg; b.flash = 0.08;
     if (b.hp > 0 || b.dead) return;
     const x = b.wx - G.scrollX;
-    b.dead = true; G.score += b.th.box.score;
-    addText(x, b.y - b.hh, `${b.th.box.label} CLEARED +${b.th.box.score}`, '#ffe066');
+    b.dead = true;
+    addText(x, b.y - b.hh, `${b.th.box.label} CLEARED +${addScore(b.th.box.score)}`, '#ffe066');
     burst(x, b.y, b.th.edge, 22, 220); burst(x, b.y, '#ffffff', 8, 160);
     Sound.play('explode');
     if (Math.random() < 0.3) spawnPickup(x, b.y);
@@ -380,6 +429,7 @@
   function spawnBoss(key) {
     const b = spawnEnemy(key, { x: W + 200, y: H / 2 });
     b.hw = b.w * 0.34; b.hh = b.h * 0.34; b.phase = 0; b.shootT = 1.5; b.entering = true;
+    b.hp = b.maxHp = Math.round(b.d.hp * G.mods.bossHp);
     if (key === 'mdr') { b.stage = 0; b.checks = [false, false, false]; b.gapRow = 3; b.wallT = 0; b.spiral = 0; b.minionT = 8; b.cycle = 0; }
     G.boss = b;
     G.banner = { title: key === 'mdr' ? 'WARNING: MDR AUDIT' : 'FINAL REVIEW: SCARLET', sub: key === 'mdr' ? 'Prove your device is safe.' : 'Get that CE mark.', t: 3.2, boss: true };
@@ -390,15 +440,19 @@
   function shoot() {
     const p = G.player, c = G.char;
     if (p.fireCd > 0) return;
-    const mult = p.certified ? 1.25 : 1;
+    const m = G.mods, mult = (p.certified ? 1.25 : 1) * m.bulletDmg;
     if (p.vortex > 0) {
       p.fireCd = 0.28;
       G.bullets.push({ x: p.x + p.w * 0.45, y: p.y + 4, vx: 520, vy: 0, r: 22, dmg: 6 * mult, pierce: true, kind: 'vortex', t: 0 });
       Sound.play('vortex'); return;
     }
-    const topic = p.onTopic > 0, cost = topic ? 0 : 3;
+    const topic = p.onTopic > 0, cost = topic ? 0 : m.tokenCost;
     if (p.tokens < cost) { if (Math.random() < 0.3) addText(p.x, p.y - 50, 'TOKEN LIMIT!', '#ff6b6b'); Sound.play('denied'); p.fireCd = 0.25; return; }
     p.tokens -= cost;
+    if (m.misfire && Math.random() < m.misfire) { // HOTFIX STRAIGHT TO PROD: the shot blows up in the tube
+      p.fireCd = 0.35; burst(p.x + p.w * 0.45, p.y, '#ff8a3d', 14, 200); Sound.play('denied');
+      drainFunding(5, 'MISFIRE! -5 funding'); return;
+    }
     p.fireCd = c.fireRate * (topic ? TOPIC_FIRE : 1);
     const angles = p.opus > 0 ? [-0.22, 0, 0.22] : [0];
     for (const a of angles) G.bullets.push({ x: p.x + p.w * 0.45, y: p.y + 4, vx: Math.cos(a) * 620, vy: Math.sin(a) * 620, r: 5, dmg: c.bulletDmg * mult, pierce: false, kind: topic ? 'topic' : p.opus > 0 ? 'opus' : 'token', t: 0, homing: topic, pierceLeft: topic ? 1 : 0 });
@@ -419,7 +473,7 @@
   function useSpecial() {
     const p = G.player, c = G.char, s = c.special;
     if (p.specialCd > 0 || p.tokens < s.cost) { Sound.play('denied'); addText(p.x, p.y - 50, p.specialCd > 0 ? 'COOLDOWN' : 'NOT ENOUGH TOKENS', '#ff6b6b'); return; }
-    p.tokens -= s.cost; p.specialCd = s.cooldown;
+    p.tokens -= s.cost; p.specialCd = s.cooldown * G.mods.specialCd;
     Sound.play('special');
     if (c.key === 'thomas') {
       G.wave = { x: p.x, y: p.y, t: 0, hit: new Set() }; // damage lands as the wave front reaches each enemy
@@ -434,6 +488,15 @@
     }
   }
   function addText(x, y, text, color, big) { G.texts.push({ x, y, text, color, t: 0, life: 1.4, big }); }
+  function addScore(n) { const s = Math.round(n * (G.riskMult || 1)); G.score += s; return s; } // risk level multiplies every score gain
+  // Funding loss without the hit reaction (no invulnerability window): misfires, burn rate, outage drain.
+  function drainFunding(amount, message) {
+    const p = G.player;
+    if (GOD || state !== 'play') return;
+    p.funding -= amount;
+    if (message) addText(p.x, p.y - 55, message, '#ff6b6b');
+    if (p.funding <= 0) { p.funding = 0; endRun(false); burst(p.x, p.y, '#ffb300', 60, 300); }
+  }
   function burst(x, y, color, n, speed) {
     for (let i = 0; i < n; i++) { const a = rand(0, 6.283), s = rand(speed * 0.3, speed); G.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.4, 0.9), t: 0, color, size: rand(3, 7) }); }
   }
@@ -443,8 +506,7 @@
     if (!silent) Sound.play('hit');
     if (e.hp <= 0 && !e.dead) {
       e.dead = true; G.kills++;
-      G.score += e.d.score;
-      addText(e.x, e.y - e.h / 2, '+' + e.d.score, '#ffe066');
+      addText(e.x, e.y - e.h / 2, '+' + addScore(e.d.score), '#ffe066');
       burst(e.x, e.y, '#ffb347', e.d.boss ? 90 : 18, e.d.boss ? 400 : 220);
       burst(e.x, e.y, '#ff5c5c', e.d.boss ? 60 : 10, e.d.boss ? 300 : 160);
       if (e.d.boss) {
@@ -483,6 +545,7 @@
   function hurtPlayer(amount, reason) {
     const p = G.player;
     if (p.invuln > 0 || p.shield > 0 || GOD) return;
+    amount = Math.round(amount * G.mods.dmgTaken);
     p.funding -= amount; p.invuln = 1.0; shake = Math.max(shake, 0.25); flash = 0.25;
     Sound.play('hurt');
     addText(p.x, p.y - 55, `-${amount} funding` + (reason ? ` (${reason})` : ''), '#ff6b6b');
@@ -501,7 +564,7 @@
       case 'credits': p.tokens = Math.min(p.maxTokens, p.tokens + 70); p.funding = Math.max(1, p.funding - 15); break;
       case 'mdrcert': p.certified = true; break;
     }
-    G.score += 50;
+    addScore(50);
     addText(p.x, p.y - 60, def.text, def.color, true);
     Sound.play(k === 'opus6' || k === 'vortex3' || k === 'shield' || k === 'mdrcert' ? 'powerup' : 'pickup');
     burst(p.x, p.y, def.color, 16, 160);
@@ -511,7 +574,7 @@
   function fireEnemy(e) {
     const p = G.player, kind = e.d.bullet;
     const aim = Math.atan2(p.y - e.y, p.x - e.x);
-    const push = (a, sp, k, r) => G.ebullets.push({ x: e.x - e.w * 0.3, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, kind: k || kind, r: r || 7, hw: r || 7, hh: r || 7, t: 0, dmg: 10 });
+    const push = (a, sp, k, r) => G.ebullets.push({ x: e.x - e.w * 0.3, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, kind: k || kind, r: r || 7, hw: r || 7, hh: r || 7, t: 0, dmg: 10, src: e.type });
     switch (kind) {
       case 'doc': push(Math.PI, 240); break;
       case 'para': push(aim, 260); break;
@@ -523,7 +586,7 @@
   }
   function bossAttack(b) {
     const p = G.player;
-    const push = (x, y, a, sp, k, r, dmg) => G.ebullets.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, kind: k, r, hw: r, hh: r, t: 0, dmg: dmg || 12 });
+    const push = (x, y, a, sp, k, r, dmg) => G.ebullets.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, kind: k, r, hw: r, hh: r, t: 0, dmg: dmg || 12, src: b.type });
     const aim = Math.atan2(p.y - b.y, p.x - b.x);
     const enraged = b.hp < b.maxHp * 0.4;
     b.phase = (b.phase + 1) % 3;
@@ -608,18 +671,22 @@
     if (keys.ArrowRight || keys.KeyD) ax += 1;
     if (keys.ArrowUp || keys.KeyW) ay -= 1;
     if (keys.ArrowDown || keys.KeyS) ay += 1;
-    const slowed = G.hazards.some(h => h.kind === 'azure' && hitRect(p, h)) ? 0.55 : 1;
-    p.vx = lerp(p.vx, ax * c.speed * slowed, 1 - Math.pow(0.001, dt));
-    p.vy = lerp(p.vy, ay * c.speed * slowed, 1 - Math.pow(0.001, dt));
+    const slowed = G.hazards.some(h => h.kind === 'azure' && hitRect(p, h)) ? 0.55 : 1, spd = c.speed * G.mods.speed;
+    p.vx = lerp(p.vx, ax * spd * slowed, 1 - Math.pow(0.001, dt));
+    p.vy = lerp(p.vy, ay * spd * slowed, 1 - Math.pow(0.001, dt));
     p.x = clamp(p.x + p.vx * dt, p.w / 2 - 10, W - p.w / 2);
     p.y = clamp(p.y + p.vy * dt, p.h / 2, H - p.h / 2);
     updateTerrain(wdt);
-    p.tilt = lerp(p.tilt, p.vy / c.speed * 0.18, 1 - Math.pow(0.01, dt));
+    p.tilt = lerp(p.tilt, p.vy / spd * 0.18, 1 - Math.pow(0.01, dt));
     p.fireCd -= dt; p.invuln -= dt; p.shield -= dt; p.opus -= dt; p.vortex -= dt; p.deep -= dt; p.onTopic -= dt; p.specialCd -= dt;
-    p.tokens = Math.min(p.maxTokens, p.tokens + c.tokenRegen * dt);
+    p.tokens = Math.min(p.maxTokens, p.tokens + c.tokenRegen * G.mods.tokenRegen * dt);
+    if (G.mods.burn) drainFunding(G.mods.burn * dt); // OVERPROMISE: constant burn rate
     if (keys.Space) shoot();
-    // azure drains tokens
-    for (const h of G.hazards) if (h.kind === 'azure' && hitRect(p, h)) { p.tokens = Math.max(0, p.tokens - 25 * dt); if (Math.random() < dt * 2) addText(p.x, p.y - 50, 'AZURE OUTAGE: tokens draining', '#8fb3ff'); }
+    // azure drains tokens (or funding, with a single region)
+    for (const h of G.hazards) if (h.kind === 'azure' && hitRect(p, h)) {
+      if (G.mods.azureFunding) { drainFunding(12 * dt); if (Math.random() < dt * 2) addText(p.x, p.y - 50, 'AZURE OUTAGE: funding draining', '#ff8080'); }
+      else { p.tokens = Math.max(0, p.tokens - 25 * dt); if (Math.random() < dt * 2) addText(p.x, p.y - 50, 'AZURE OUTAGE: tokens draining', '#8fb3ff'); }
+    }
 
     // spawn enemies
     if (!zone.boss) {
@@ -627,14 +694,14 @@
       if (G.spawnT <= 0) {
         const interval = lerp(2.4, 0.9, difficulty);
         G.spawnT = interval * rand(0.7, 1.3);
-        spawnEnemy(weightedPick(zone.enemies.map(([k, w]) => ({ w, v: k }))));
-        if (difficulty > 0.35 && Math.random() < 0.3) spawnEnemy(weightedPick(zone.enemies.map(([k, w]) => ({ w, v: k }))));
+        spawnEnemy(pickZoneEnemy(zone));
+        if (difficulty > 0.35 && Math.random() < 0.3) spawnEnemy(pickZoneEnemy(zone));
       }
       G.hazardT -= wdt;
-      if (G.hazardT <= 0) { G.hazardT = lerp(7, 3.5, difficulty) * rand(0.7, 1.3); spawnHazard(); }
+      if (G.hazardT <= 0) { G.hazardT = lerp(7, 3.5, difficulty) * rand(0.7, 1.3) / G.mods.hazardRate; spawnHazard(); }
     }
     G.pickupT -= wdt;
-    if (G.pickupT <= 0) { G.pickupT = rand(8, 13); spawnPickup(W + 20); }
+    if (G.pickupT <= 0) { G.pickupT = rand(8, 13) / G.mods.pickupRate; spawnPickup(W + 20); }
 
     // enemies
     for (const e of G.enemies) {
@@ -661,7 +728,7 @@
         e.shootT -= wdt; if (e.shootT <= 0) { e.shootT = d.shoot * rand(0.8, 1.2) * lerp(1.2, 0.8, difficulty); fireEnemy(e); }
       }
       if (e.x < -e.w) e.dead = true;
-      if (!e.dead && hitRect(e, p)) { hurtPlayer(d.boss ? 20 : 15, d.name); if (!d.boss) damageEnemy(e, 2); }
+      if (!e.dead && hitRect(e, p)) { hurtPlayer((d.boss ? 20 : 15) * G.mods.enemyDmg[e.type], d.name); if (!d.boss) damageEnemy(e, 2); }
     }
     // bullets
     for (const b of G.bullets) {
@@ -686,13 +753,13 @@
         if (b.kind === 'vortex') { if (!b.hitSet) b.hitSet = new Set(); if (!b.hitSet.has(s)) { b.hitSet.add(s); damageBlock(s, b.dmg); } }
         else { b.dead = true; damageBlock(s, b.dmg); burst(b.x, b.y, '#ffe066', 4, 120); Sound.play('hit'); continue; }
       } else if (s && b.kind !== 'vortex') { b.dead = true; burst(b.x, b.y, '#cfd8e8', 3, 90); continue; }
-      for (const h of G.hazards) if (h.kind === 'mine' && !h.dead && dist2(b.x, b.y, h.x, h.y) < (h.r + b.r) ** 2) { h.dead = true; b.dead = !b.pierce; burst(h.x, h.y, '#ff5c5c', 20, 220); Sound.play('explode'); G.score += 40; addText(h.x, h.y, 'DEBT CLEARED +40', '#ffe066'); }
+      for (const h of G.hazards) if (h.kind === 'mine' && !h.dead && dist2(b.x, b.y, h.x, h.y) < (h.r + b.r) ** 2) { h.dead = true; b.dead = !b.pierce; burst(h.x, h.y, '#ff5c5c', 20, 220); Sound.play('explode'); addText(h.x, h.y, 'DEBT CLEARED +' + addScore(40), '#ffe066'); }
     }
     for (const b of G.ebullets) {
       b.t += wdt; b.x += b.vx * wdt; b.y += b.vy * wdt;
       if (b.x < -20 || b.x > W + 60 || b.y < -20 || b.y > H + 20) b.dead = true;
       if (!b.dead && solidAt(b.x, b.y)) { b.dead = true; burst(b.x, b.y, '#9aa3ad', 3, 80); continue; }
-      if (!b.dead && hitRect(b, p)) { b.dead = true; if (p.shield > 0) burst(b.x, b.y, '#ffe066', 5, 100); else hurtPlayer(b.dmg); }
+      if (!b.dead && hitRect(b, p)) { b.dead = true; if (p.shield > 0) burst(b.x, b.y, '#ffe066', 5, 100); else hurtPlayer(b.dmg * (G.mods.enemyDmg[b.src] || 1)); }
     }
     // conformity scan beams: telegraph, then sweep left draining tokens
     for (const bm of G.beams) {
@@ -709,6 +776,7 @@
     for (const h of G.hazards) {
       h.t += wdt; h.x += h.vx * wdt;
       h.y = keepInGap(h.x, h.hw, h.y, h.hh);
+      if (h.kind === 'mine' && G.mods.homingMines) h.y += clamp(p.y - h.y, -110 * wdt, 110 * wdt); // NO SECURITY: mines seek you
       if (h.kind === 'mine') { h.y += Math.sin(h.t * 2) * 20 * wdt; if (hitRect(h, p)) { h.dead = true; burst(h.x, h.y, '#ff5c5c', 24, 240); hurtPlayer(20, 'tech debt'); } }
       if (h.x < -120) h.dead = true;
     }
@@ -1045,6 +1113,8 @@
     const buffs = [['OPUS 6', p.opus, POWERUPS.opus6.color], ['VORTEX 3', p.vortex, POWERUPS.vortex3.color], ['INVINCIBLE', p.shield, POWERUPS.shield.color], ['DEEP THOUGHT', p.deep, CHARACTERS.robert.color], ['STAY ON TOPIC', p.onTopic, CHARACTERS.veerle.color]];
     for (const [n, t, col] of buffs) if (t > 0) { text(`${n} ${Math.ceil(t)}s`, bx, by, 8, col, 'left'); by += 14; }
     if (p.certified) { text('MDR CERTIFIED +25% DMG', bx, by, 8, POWERUPS.mdrcert.color, 'left'); by += 14; }
+    if (G.risks.length) { const lvl = riskLevel(G.risks.length); text(`${lvl.name} x${lvl.mult}: ${G.risks.map(r => r.tag).join(' / ')}`, bx, by, 7, lvl.color, 'left'); by += 14; }
+    if (G.mods.burn) { text(`BURN RATE -${G.mods.burn}/s`, bx, by, 7, '#ff8080', 'left'); by += 14; }
     // depth gauge on the right
     const gx = W - 14, gy = 60, gh = H - 120;
     ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(gx - 4, gy, 8, gh);
@@ -1102,14 +1172,37 @@
       text(`SPECIAL: ${c.special.name}`, cx, 392, 9, '#ffe066', 'center');
       c.special.desc.forEach((l, j) => text(l, cx, 408 + j * 11, 7, '#dfe8ff', 'center'));
     });
-    if (Math.floor(elapsed * 2) % 2 === 0) text('PRESS ENTER TO DIVE', W / 2, 468, 12, '#fff', 'center');
+    if (Math.floor(elapsed * 2) % 2 === 0) text('PRESS ENTER TO CONTINUE', W / 2, 468, 12, '#fff', 'center');
     text('Left/Right to choose  ·  Shoot: Space  ·  Special: Shift  ·  Enemies fire back, hazards drain you, walls scrape the hull.', W / 2, 495, 7, '#9fc3ff', 'center');
     text('Funding = HP. Tokens = ammo (they regenerate). Run out of funding and it is game over.', W / 2, 512, 7, '#9fc3ff', 'center');
+  }
+
+  // Second title step: pick the corners to cut before diving.
+  function drawRisks() {
+    drawBackground(0.25, elapsed * 25, 1);
+    text('CUT CORNERS?', W / 2, 40, 22, '#ffb300', 'center');
+    text('Every shortcut makes Kaiko stronger, the ocean deadlier, and the score bigger.', W / 2, 70, 8, '#cfe3ff', 'center');
+    const x0 = 90, w = W - 2 * x0;
+    RISKS.forEach((r, i) => {
+      const y = RISK_Y0 + i * RISK_ROW, on = riskSel.has(r.key), cur = i === riskCursor;
+      ctx.fillStyle = cur ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.35)'; ctx.fillRect(x0 - 10, y - 18, w + 20, RISK_ROW - 4);
+      if (cur) { ctx.strokeStyle = '#ffe066'; ctx.lineWidth = 2; ctx.strokeRect(x0 - 10, y - 18, w + 20, RISK_ROW - 4); }
+      text(`[${on ? 'X' : ' '}]`, x0, y - 4, 12, on ? '#5cff5c' : '#9fc3ff', 'left');
+      text(r.label, x0 + 50, y - 6, 10, on ? '#fff' : '#dfe8ff', 'left');
+      text('+ ' + r.up, x0 + 50, y + 10, 7, '#5cff5c', 'left');
+      text('- ' + r.down, x0 + 400, y + 10, 7, '#ff8080', 'left');
+    });
+    const lvl = riskLevel(riskSel.size), c = CHARACTERS[selected];
+    text(`RISK LEVEL: ${lvl.name}   ·   SCORE x${lvl.mult}`, W / 2, 432, 12, lvl.color, 'center');
+    text(`PILOT: ${c.name} (${c.title})`, W / 2, 454, 8, c.color, 'center');
+    if (Math.floor(elapsed * 2) % 2 === 0) text('ENTER: DIVE', W / 2, 486, 12, '#fff', 'center');
+    text('Up/Down or click to move  ·  Space or 1-7 to toggle  ·  Esc: back to pilots', W / 2, 512, 7, '#9fc3ff', 'center');
   }
 
   function drawRunStats(y) {
     text(`SCORE ${G.score}`, W / 2, y, 16, '#ffe066', 'center');
     text(`DEPTH REACHED ${Math.floor(G.depth)}m   ·   ENEMIES DEFEATED ${G.kills}   ·   TIME ${Math.floor(G.time)}s`, W / 2, y + 33, 8, '#cfe3ff', 'center');
+    if (G.risks.length) { const lvl = riskLevel(G.risks.length); text(`CORNERS CUT (${lvl.name}, score x${lvl.mult}): ${G.risks.map(r => r.tag).join(', ')}`, W / 2, y + 50, 7, lvl.color, 'center'); }
   }
   function drawEndPrompt(y, again) {
     if (Math.floor(elapsed * 2) % 2 === 0) text(`ENTER: CHOOSE PILOT   R: ${again}`, W / 2, y, 11, '#fff', 'center');
@@ -1173,6 +1266,7 @@
     ctx.save();
     if (shake > 0) ctx.translate(rand(-1, 1) * shake * 14, rand(-1, 1) * shake * 14);
     if (state === 'title') { drawTitle(); ctx.restore(); return; }
+    if (state === 'risks') { drawRisks(); ctx.restore(); return; }
     drawBackground(clamp(G.depth / MAX_DEPTH, 0, 1), G.scrollX, 1);
     drawBubbles();
     drawTerrain();
@@ -1202,11 +1296,12 @@
   }
   ctx.fillStyle = '#0a1a4a'; ctx.fillRect(0, 0, W, H);
   text('LOADING...', W / 2, H / 2, 14, '#fff', 'center');
-  // Debug/testing hooks: ?pilot=thomas|robert|veerle&autostart=1&depth=2600&autofire=1&turbo=30&god=1&debug=1
+  // Debug/testing hooks: ?pilot=thomas|robert|veerle&autostart=1&depth=2600&autofire=1&turbo=30&god=1&debug=1&risks=noeval,hotfix
   const Q = new URLSearchParams(location.search);
   TURBO = clamp(parseInt(Q.get('turbo') || '1', 10) || 1, 1, 200);
   GOD = !!Q.get('god');
   START_DEPTH = clamp(parseFloat(Q.get('depth')) || 0, 0, MAX_DEPTH);
+  for (const k of (Q.get('risks') || '').split(',')) if (RISKS.some(r => r.key === k)) riskSel.add(k);
   if (Q.get('debug')) window.KAIKO = { G, CHARACTERS, get state() { return state; } };
   loadAssets(() => {
     if (Q.get('autostart')) {
