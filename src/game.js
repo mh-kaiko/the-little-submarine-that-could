@@ -473,7 +473,7 @@
     const p = G.player, c = G.char;
     if (p.fireCd > 0) return;
     const m = G.mods, mult = (p.certified ? 1.25 : 1) * m.bulletDmg;
-    if (p.vortex > 0) {
+    if (p.vortex > 0 && !c.op) { // PERSONALIZED MEDICINE keeps its volley and fires vortex on top (below)
       p.fireCd = 0.28;
       G.bullets.push({ x: p.x + p.w * 0.45, y: p.y + 4, vx: 520, vy: 0, r: 22, dmg: 6 * mult, pierce: true, kind: 'vortex', t: 0 });
       Sound.play('vortex'); return;
@@ -490,7 +490,8 @@
       drainFunding(5, 'MISFIRE! -5 funding'); return;
     }
     p.fireCd = c.fireRate * (topic ? TOPIC_FIRE : 1);
-    const angles = c.op ? [-0.4, -0.2, 0, 0.2, 0.4] : p.opus > 0 ? [-0.22, 0, 0.22] : [0];
+    const angles = c.op ? (p.opus > 0 ? [-0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6] : [-0.4, -0.2, 0, 0.2, 0.4]) : p.opus > 0 ? [-0.22, 0, 0.22] : [0];
+    if (c.op && p.vortex > 0 && !(p.vortexCd > 0)) { p.vortexCd = 0.28; G.bullets.push({ x: p.x + p.w * 0.45, y: p.y + 4, vx: 520, vy: 0, r: 22, dmg: 6 * mult, pierce: true, kind: 'vortex', t: 0 }); Sound.play('vortex'); }
     for (const a of angles) G.bullets.push({ x: p.x + p.w * 0.45, y: p.y + 4, vx: Math.cos(a) * 620, vy: Math.sin(a) * 620, r: 5, dmg: c.bulletDmg * mult, pierce: false, kind: c.op ? 'pm' : topic ? 'topic' : p.opus > 0 ? 'opus' : 'token', t: 0, homing: topic, pierceLeft: topic ? (c.op ? 3 : 1) : 0 });
     Sound.play('shoot');
   }
@@ -746,7 +747,7 @@
     p.y = clamp(p.y + p.vy * dt, p.h / 2, H - p.h / 2);
     updateTerrain(wdt);
     p.tilt = lerp(p.tilt, p.vy / spd * 0.18, 1 - Math.pow(0.01, dt));
-    p.fireCd -= dt; p.invuln -= dt; p.shield -= dt; p.opus -= dt; p.vortex -= dt; p.deep -= dt; p.onTopic -= dt; p.specialCd -= dt;
+    p.fireCd -= dt; p.invuln -= dt; p.shield -= dt; p.opus -= dt; p.vortex -= dt; p.vortexCd = (p.vortexCd || 0) - dt; p.deep -= dt; p.onTopic -= dt; p.specialCd -= dt;
     p.tokens = Math.min(p.maxTokens, p.tokens + c.tokenRegen * G.mods.tokenRegen * dt);
     if (G.mods.burn) drainFunding(G.mods.burn * dt); // OVERPROMISE: constant burn rate
     if (keys.Space) shoot();
