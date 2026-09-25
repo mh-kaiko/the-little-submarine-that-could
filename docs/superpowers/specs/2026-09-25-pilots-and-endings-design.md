@@ -93,47 +93,44 @@ HUD buff entry.
 
 ## Faces in the submarines
 
-Assets:
+Already on `game-mechanism` (commits `a4ceac9`, `5b784c8`, `ea99889`):
+pilot portraits in `assets/sprites/<key>.png` (keyed out and shrunk by
+`portrait()` in `tools/extract_sprites.py`), a `portrait` and a `hatch`
+entry per character, and `drawPilotHead(p, c)`, which draws the pilot's
+head behind the sub, clipped so it pokes out of the hatch and follows the
+tilt. This design reuses all of that and does not add a separate porthole
+face.
 
-- Copy `data/thomas.png`, `data/robert.png`, `data/veerle.png` from `main`
-  to `assets/faces/<key>.png`, downscaled to 256 by 256 with nearest
-  neighbour. They are square pixel-art headshots on a navy background.
-- Copy `data/submarine.png` from `main` to `assets/raw/kaiko_dome.png`
-  and add it to `tools/extract_sprites.py`, producing
-  `assets/sprites/kaiko_dome.png` (transparent, cropped).
-- `loadAssets` loads `kaiko_dome` with the other sprites and the three
-  faces as `IMG.face_thomas`, `IMG.face_robert`, `IMG.face_veerle`.
+What changes:
 
-Drawing: a `FACE_SPOT` table gives, for each sub sprite, the window
-centre and radius as fractions of the sprite's drawn width, relative to
-the sprite centre (right-facing). Initial values, to be tuned by eye:
-
-| sprite | window | x | y | r |
-| --- | --- | --- | --- | --- |
-| `kaiko_sub` | round porthole on the hull | -0.05 | -0.02 | 0.07 |
-| `kaiko_mini` | front dome | +0.43 | +0.02 | 0.09 |
-| `kaiko_dome` | front dome | +0.40 | +0.03 | 0.09 |
-
-`drawFace(key, x, y, r)` clips to a circle of radius `r`, draws the
-centre 70% of the face image (the head, cropping shoulders and
-background) scaled to fill the circle, then strokes a 2 px dark rim and a
-small white glass highlight. It is called right after the sub sprite,
-inside the same translate/rotate so the face follows the sub's tilt and
-blink. `drawPlayer`, the select cards, and the victory screen all use it.
-
-If a face image failed to load, `drawFace` draws nothing (the sub's own
-window stays visible).
+- `tools/extract_sprites.py` also runs `portrait('veerle')` (the raw
+  `assets/raw/veerle.png` is already there) and loads it as `veerle` in
+  `SPRITES`.
+- `assets/raw/submarine.png` was replaced in `ea99889` by the new dome
+  sub, while the committed `assets/sprites/kaiko_sub.png` is still the
+  old big sub. The script's sub line now writes that raw file to
+  `assets/sprites/kaiko_dome.png`, so rerunning the script no longer
+  overwrites `kaiko_sub.png`. `kaiko_dome` is added to `SPRITES`.
+- Hatches: Thomas takes the `hatch` that belonged to the old Robert entry
+  (`{ x: 0.53, y: 0.225, size: 0.2 }`, big sub) and Robert the old Thomas
+  one (`{ x: 0.48, y: 0.36, size: 0.26 }`, mini sub), because the hatch
+  belongs to the sub. Veerle's `kaiko_dome` starts at
+  `{ x: 0.62, y: 0.3, size: 0.22 }` and is tuned by eye.
+- `drawPilotHead` is reused by the victory screen with a stand-in object
+  `{ x, y, w, h, tilt: 0 }`.
 
 ## Title and pilot select
 
 The title screen keeps its layout: "KAIKO", "THE LITTLE SUBMARINE THAT
 COULD", "CHOOSE YOUR PILOT", and the blinking "PRESS ENTER TO DIVE".
 
-Cards become three, 290 px wide, centred at x = 160, 480 and 800, from
-y 150 to 445. Each card: the pilot's sub with face (bobbing when
-selected), `NAME (TITLE)` in the pilot's colour, the three blurb lines,
-the stats line, `SPECIAL: NAME`, and the three description lines. The
-selected card gets the colour border, as today.
+Cards become three, 300 px wide, centred at x = 160, 480 and 800, from
+y 150 to 445. Each card keeps today's composition, scaled down: the
+portrait on the left (96 px square, centred at `cx - 80, 222`) and the sub
+on the right (`c.width * 0.7` wide at `cx + 70`, bobbing), then
+`NAME (TITLE)` in the pilot's colour, the three blurb lines, the stats
+line, `SPECIAL: NAME`, and the three description lines. The selected card
+gets the colour border, as today.
 
 Input: Left/A and Right/D cycle through the three (wrapping). Digit1,
 Digit2 and Digit3 pick directly. A click selects by thirds of the canvas
@@ -172,7 +169,8 @@ colour from the pilots' colours plus white. Positions are functions of
 `drawEnd(true)`:
 
 - a dark green overlay (as today), then confetti;
-- the pilot's sub with face, bobbing, centred at `H/2 - 150`;
+- the pilot's sub with their head out of the hatch, bobbing, centred at
+  `H/2 - 150`;
 - "CONGRATULATIONS!" at 26 px in `#5cff5c`;
 - "You've solved healthcare." at 12 px;
 - "Kaiko is now deployed in every hospital in the EU," and "helping a
@@ -200,7 +198,7 @@ the browser through the existing debug query string (`pilot`,
 
 1. The title shows three cards. Arrows, 1/2/3 and clicks select, Enter
    starts, and each pilot flies the right sub with their face in the
-   window, following tilt and blink.
+   hatch, following tilt and blink.
 2. `?pilot=thomas&autostart=1`: FUNDRAISE behaves as before.
 3. `?pilot=robert&autostart=1`: DEEP THOUGHT visibly slows enemies,
    bullets and depth while Kaiko moves at full speed; the HUD shows the
