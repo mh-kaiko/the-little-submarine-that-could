@@ -6,6 +6,7 @@ import pygame
 
 from kaiko import DT, FPS
 from kaiko.director import Director
+from kaiko.music import Music, track_for
 from kaiko.render import Renderer
 from kaiko.world import World
 
@@ -44,9 +45,13 @@ class Game:
         if not self.world.player.alive:
             self.state = "gameover"
 
+    def track(self) -> str | None:
+        return track_for(self.state, self.director.boss is not None)
+
     def run(self) -> None:
         pygame.init()
         renderer = Renderer(self.windowed)
+        music = Music()
         clock = pygame.time.Clock()
         running = True
         while running:
@@ -56,6 +61,7 @@ class Game:
                 elif event.type == pygame.KEYDOWN:
                     running = self.handle_key(event.key)
             self.step(pygame.key.get_pressed())
+            music.play(self.track())
             renderer.draw(self.world, self.state)
             clock.tick(FPS)
         pygame.quit()

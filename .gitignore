@@ -2,3 +2,7 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Music is copyrighted; keep local, never commit
+music/*
+!music/README.md
