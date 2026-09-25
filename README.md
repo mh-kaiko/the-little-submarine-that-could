@@ -19,6 +19,25 @@ python3 -m http.server 8000
 
 (Opening `index.html` directly also works in most browsers, but a local server is safest.)
 
+Stop the server with Ctrl+C.
+
+### Jump to a zone
+
+With the server running, open one of these links. The game skips the title screen and starts at that depth:
+
+| Zone | Link |
+|------|------|
+| Sunlit (coral reef) | http://localhost:8000/?autostart=1 |
+| Twilight (rocky canyon) | http://localhost:8000/?autostart=1&depth=900 |
+| Midnight (caves) | http://localhost:8000/?autostart=1&depth=1700 |
+| MDR boss | http://localhost:8000/?autostart=1&depth=2599 |
+| Abyssal (trench, vents) | http://localhost:8000/?autostart=1&depth=2700 |
+| Abyssal, in the dark | http://localhost:8000/?autostart=1&depth=3300 |
+| SCARLET final boss | http://localhost:8000/?autostart=1&depth=3999 |
+
+Append `&pilot=thomas`, `&pilot=robert` or `&pilot=veerle` to pick a pilot, and `&god=1` to be unhurtable.
+See [Debug / testing URL parameters](#debug--testing-url-parameters) for all options.
+
 ## Controls
 
 | Action  | Keys                    |
@@ -127,8 +146,9 @@ index.html?autostart=1&pilot=thomas&depth=2599&autofire=1&turbo=1
 | Param      | Effect |
 |------------|--------|
 | `autostart=1` | skip the title screen |
-| `pilot=robert\|thomas` | choose the pilot |
+| `pilot=thomas\|robert\|veerle` | choose the pilot |
 | `depth=<m>` | start at that depth (e.g. `2599` for the MDR boss, `3999` for SCARLET) |
 | `autofire=1` | hold fire automatically |
 | `turbo=<n>` | run `n` simulation steps per frame (fast-forward) |
 | `god=1` | the pilot cannot be hurt (for checking boss stages) |
+| `debug=1` | exposes game state as `window.KAIKO` in the browser console |
