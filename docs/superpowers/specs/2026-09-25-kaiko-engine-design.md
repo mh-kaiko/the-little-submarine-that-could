@@ -13,8 +13,11 @@ remaining time building enemies in parallel against a written contract.
   folder. Contributors never edit engine files.
 - One contributor's broken enemy never breaks the game or anyone else's work.
 
-Out of scope: audio, powerups, multiple levels, high-score persistence,
-gamepad input, scripted waves.
+Out of scope: audio, pickup powerups, multiple levels, high-score
+persistence, gamepad input, scripted waves. Character abilities, the final
+boss, and the end screens are specified in
+`2026-09-25-characters-and-endings-design.md`, which supersedes this
+document where they disagree.
 
 ## Stack
 
@@ -173,6 +176,9 @@ Actions:
   0.7 s spawn interval so contributors see their work immediately.
 
 ### Game flow
+
+Superseded by the characters and endings addendum.
+
 
 - Title screen: press space to start.
 - Playing: HUD shows score and lives.
