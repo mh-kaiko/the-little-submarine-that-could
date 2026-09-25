@@ -45,6 +45,14 @@ With the server running, open one of these links. The game skips the title scree
 Append `&pilot=thomas`, `&pilot=robert` or `&pilot=veerle` to pick a pilot, and `&god=1` to be unhurtable.
 See [Debug / testing URL parameters](#debug--testing-url-parameters) for all options.
 
+## On a phone
+
+The live link works on phones and tablets in landscape. Drag anywhere to steer (the sub follows your thumb's
+movement, not its position), Kaiko fires for as long as you touch, and the two buttons bottom right are
+SPECIAL and PAUSE. Menus are tap-driven: tap a pilot or a shortcut, tap the bottom prompt to continue,
+and on the end screens tap the left box to choose a pilot or the right box to retry. In portrait the game
+pauses behind a rotate-your-phone prompt. Add `?touch=1` to a desktop URL to preview the touch layout.
+
 ## Controls
 
 | Action  | Keys                    |

@@ -217,6 +217,11 @@
   let selected = 'thomas';
   let riskSel = new Set(), riskCursor = 0; // chosen shortcuts persist across retries
   let keys = {};
+  // Touch: drag anywhere to steer (relative to where the thumb started), fire while touching, buttons for SPECIAL and PAUSE.
+  const TOUCH = (window.matchMedia && matchMedia('(pointer: coarse)').matches) || navigator.maxTouchPoints > 0 || /touch=1/.test(location.search);
+  const TOUCH_GAIN = 1.35; // canvas px the sub moves per canvas px the thumb moves
+  const BTN = { special: { x: W - 66, y: H - 66, r: 40, label: 'SPECIAL' }, pause: { x: W - 66, y: H - 150, r: 24, label: 'II' } };
+  const drag = { id: null, lx: 0, ly: 0, dx: 0, dy: 0, active: false };
   let lastTime = 0, elapsed = 0;
   let shake = 0, flash = 0;
   const G = {}; // game session
@@ -253,13 +258,26 @@
     onKey(e.code);
   });
   window.addEventListener('keyup', e => { keys[e.code] = false; });
-  const loseFocus = () => { const fire = keys.Space && AUTOFIRE; keys = {}; if (fire) keys.Space = true; if (state === 'play') state = 'paused'; };
+  const loseFocus = () => { const fire = keys.Space && AUTOFIRE; keys = {}; if (fire) keys.Space = true; drag.id = null; drag.active = false; drag.dx = drag.dy = 0; if (state === 'play') state = 'paused'; };
   window.addEventListener('blur', loseFocus);
   document.addEventListener('visibilitychange', () => { if (document.hidden) loseFocus(); else lastTime = performance.now(); });
+  if (TOUCH && window.matchMedia) { // the rotate-your-phone overlay covers the game: pause under it
+    const portrait = matchMedia('(orientation: portrait)');
+    const onTurn = () => { if (portrait.matches) loseFocus(); else lastTime = performance.now(); };
+    portrait.addEventListener ? portrait.addEventListener('change', onTurn) : portrait.addListener(onTurn);
+  }
+  const canvasXY = (e) => { const r = canvas.getBoundingClientRect(); return [(e.clientX - r.left) * W / r.width, (e.clientY - r.top) * H / r.height]; };
+  const onButton = (b, x, y) => TOUCH && dist2(x, y, b.x, b.y) < (b.r + 8) ** 2;
   canvas.addEventListener('pointerdown', e => {
     Sound.init(); Sound.resume();
-    const r = canvas.getBoundingClientRect();
-    const x = (e.clientX - r.left) * W / r.width, y = (e.clientY - r.top) * H / r.height;
+    if (e.pointerType === 'touch') e.preventDefault();
+    const [x, y] = canvasXY(e);
+    if (state === 'play') {
+      if (onButton(BTN.pause, x, y)) { state = 'paused'; return; }
+      if (onButton(BTN.special, x, y)) { useSpecial(); return; }
+      if (drag.id === null) { drag.id = e.pointerId; drag.lx = x; drag.ly = y; drag.active = true; canvas.setPointerCapture && canvas.setPointerCapture(e.pointerId); }
+      return;
+    }
     if (state === 'title') {
       if (y > 150 && y < 440) { selected = PILOTS[clamp(Math.floor(x / (W / PILOTS.length)), 0, PILOTS.length - 1)]; Sound.play('select'); }
       if (y >= 450) { state = 'risks'; Sound.play('select'); }
@@ -268,8 +286,15 @@
       if (i >= 0 && i < RISKS.length && x > 60 && x < W - 60) { riskCursor = i; toggleRisk(i); }
       else if (y >= 470) startGame();
     } else if (state === 'paused') state = 'play';
-    else if (state === 'gameover' || state === 'win') toTitle();
+    else if (state === 'gameover' || state === 'win') { if (TOUCH && x > W / 2) startGame(); else toTitle(); }
   });
+  canvas.addEventListener('pointermove', e => {
+    if (drag.id !== e.pointerId) return;
+    const [x, y] = canvasXY(e);
+    drag.dx += x - drag.lx; drag.dy += y - drag.ly; drag.lx = x; drag.ly = y;
+  });
+  const endDrag = e => { if (drag.id === e.pointerId) { drag.id = null; drag.active = false; drag.dx = drag.dy = 0; if (G.player) G.player.vx = G.player.vy = 0; } }; // lift the thumb, stop dead
+  canvas.addEventListener('pointerup', endDrag); canvas.addEventListener('pointercancel', endDrag);
   function onKey(code) {
     if (code === 'KeyM') { Sound.toggleMute(); return; }
     cheatKeys = [...cheatKeys, code].slice(-KONAMI.length);
@@ -898,14 +923,18 @@
     const slowed = G.hazards.some(h => h.kind === 'azure' && hitRect(p, h)) ? 0.55 : 1, spd = c.speed * G.mods.speed;
     p.vx = lerp(p.vx, ax * spd * slowed, 1 - Math.pow(0.001, dt));
     p.vy = lerp(p.vy, ay * spd * slowed, 1 - Math.pow(0.001, dt));
-    p.x = clamp(p.x + p.vx * dt, p.w / 2 - 10, W - p.w / 2);
-    p.y = clamp(p.y + p.vy * dt, p.h / 2, H - p.h / 2);
+    if (drag.active && (drag.dx || drag.dy)) { // touch steering: the sub follows the thumb's movement, not its position
+      const mx = drag.dx * TOUCH_GAIN, my = drag.dy * TOUCH_GAIN; drag.dx = drag.dy = 0;
+      p.x += mx; p.y += my; p.vx = clamp(mx / Math.max(dt, 1e-3), -spd, spd); p.vy = clamp(my / Math.max(dt, 1e-3), -spd, spd); // velocity only feeds the tilt
+    }
+    p.x = clamp(p.x + (drag.active ? 0 : p.vx * dt), p.w / 2 - 10, W - p.w / 2);
+    p.y = clamp(p.y + (drag.active ? 0 : p.vy * dt), p.h / 2, H - p.h / 2);
     updateTerrain(wdt);
     p.tilt = lerp(p.tilt, p.vy / spd * 0.18, 1 - Math.pow(0.01, dt));
     p.fireCd -= dt; p.invuln -= dt; p.shield -= dt; p.opus -= dt; p.vortex -= dt; p.vortexCd = (p.vortexCd || 0) - dt; p.deep -= dt; p.onTopic -= dt; p.specialCd -= dt;
     p.tokens = Math.min(p.maxTokens, p.tokens + c.tokenRegen * G.mods.tokenRegen * dt);
     if (G.mods.burn) drainFunding(G.mods.burn * dt); // OVERPROMISE: constant burn rate
-    if (keys.Space) shoot();
+    if (keys.Space || drag.active) shoot();
     // azure drains tokens (or funding, with a single region): chips stream out of the sub and get swallowed by the cloud
     p.drain = Math.max(0, p.drain - dt);
     for (const h of G.hazards) if (h.kind === 'azure' && hitRect(p, h)) {
@@ -1596,6 +1625,7 @@
     if (p.certified) { text('MDR CERTIFIED +25% DMG', bx, by, 8, POWERUPS.mdrcert.color, 'left'); by += 14; }
     if (G.risks.length) { const lvl = riskLevel(G.risks.length); text(`${lvl.name} x${lvl.mult}: ${G.risks.map(r => r.tag).join(' / ')}`, bx, by, 7, lvl.color, 'left'); by += 14; }
     if (G.mods.burn) { text(`BURN RATE -${G.mods.burn}/s`, bx, by, 7, '#ff8080', 'left'); by += 14; }
+    if (TOUCH) drawTouchButtons(ready, c.color);
     // depth gauge on the right
     const gx = W - 14, gy = 60, gh = H - 120;
     ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(gx - 4, gy, 8, gh);
@@ -1625,7 +1655,7 @@
       const a = clamp(Math.min(G.time * 2, (9 - G.time)), 0, 1);
       ctx.save(); ctx.globalAlpha = a;
       ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(W / 2 - 330, H - 40, 660, 30);
-      text('MOVE: ARROWS / WASD     FIRE: SPACE     SPECIAL: SHIFT     PAUSE: P', W / 2, H - 25, 8, '#ffffff', 'center');
+      text(TOUCH ? 'DRAG ANYWHERE TO STEER     KAIKO FIRES WHILE YOU TOUCH     SPECIAL: BUTTON' : 'MOVE: ARROWS / WASD     FIRE: SPACE     SPECIAL: SHIFT     PAUSE: P', W / 2, H - 25, 8, '#ffffff', 'center');
       ctx.restore();
     }
     // banner
@@ -1639,6 +1669,19 @@
     }
   }
 
+  function drawTouchButtons(ready, color) {
+    const p = G.player, s = G.char.special;
+    for (const [k, b] of Object.entries(BTN)) {
+      const isSp = k === 'special';
+      ctx.save(); ctx.globalAlpha = 0.85;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, 6.283); ctx.fill();
+      ctx.lineWidth = 3; ctx.strokeStyle = isSp ? (ready ? color : '#777') : '#cfe3ff'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, 6.283); ctx.stroke();
+      if (isSp && p.specialCd > 0) { ctx.strokeStyle = color; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(b.x, b.y, b.r - 6, -Math.PI / 2, -Math.PI / 2 + 6.283 * (1 - p.specialCd / (s.cooldown || 1))); ctx.stroke(); }
+      text(b.label, b.x, b.y + (isSp ? -6 : 1), isSp ? 8 : 12, '#fff', 'center');
+      if (isSp) text(ready ? 'READY' : p.specialCd > 0 ? `${Math.ceil(p.specialCd)}s` : `${s.cost} TOK`, b.x, b.y + 10, 7, ready ? color : '#aaa', 'center');
+      ctx.restore();
+    }
+  }
   function drawTitle() {
     drawBackground(0.15, elapsed * 25, 1);
     // slow bubbles
@@ -1668,8 +1711,9 @@
       text(`SPECIAL: ${c.special.name}`, cx, 392, 9, '#ffe066', 'center');
       c.special.desc.forEach((l, j) => text(l, cx, 408 + j * 11, 7, '#dfe8ff', 'center'));
     });
-    if (Math.floor(elapsed * 2) % 2 === 0) text('PRESS ENTER TO CONTINUE', W / 2, 468, 12, '#fff', 'center');
-    text('Left/Right to choose  ·  Shoot: Space  ·  Special: Shift  ·  Enemies fire back, hazards drain you, walls scrape the hull.', W / 2, 495, 7, '#9fc3ff', 'center');
+    if (Math.floor(elapsed * 2) % 2 === 0) text(TOUCH ? 'TAP HERE TO CONTINUE' : 'PRESS ENTER TO CONTINUE', W / 2, 468, 12, '#fff', 'center');
+    if (TOUCH) text('Tap a pilot  ·  In the dive: drag anywhere to steer, Kaiko fires while you touch  ·  Buttons: SPECIAL and PAUSE', W / 2, 495, 7, '#9fc3ff', 'center');
+    else text('Left/Right to choose  ·  Shoot: Space  ·  Special: Shift  ·  Enemies fire back, hazards drain you, walls scrape the hull.', W / 2, 495, 7, '#9fc3ff', 'center');
     text('Funding = HP. Tokens = ammo (they regenerate). Run out of funding and it is game over.', W / 2, 512, 7, '#9fc3ff', 'center');
   }
 
@@ -1691,8 +1735,8 @@
     const lvl = riskLevel(riskSel.size), c = CHARACTERS[selected];
     text(`RISK LEVEL: ${lvl.name}   ·   SCORE x${lvl.mult}`, W / 2, 432, 12, lvl.color, 'center');
     text(`PILOT: ${c.name} (${c.title})`, W / 2, 454, 8, c.color, 'center');
-    if (Math.floor(elapsed * 2) % 2 === 0) text('ENTER: DIVE', W / 2, 486, 12, '#fff', 'center');
-    text('Up/Down or click to move  ·  Space or 1-7 to toggle  ·  Esc: back to pilots', W / 2, 512, 7, '#9fc3ff', 'center');
+    if (Math.floor(elapsed * 2) % 2 === 0) text(TOUCH ? 'TAP HERE TO DIVE' : 'ENTER: DIVE', W / 2, 486, 12, '#fff', 'center');
+    text(TOUCH ? 'Tap a shortcut to toggle it' : 'Up/Down or click to move  ·  Space or 1-7 to toggle  ·  Esc: back to pilots', W / 2, 512, 7, '#9fc3ff', 'center');
   }
 
   function drawRunStats(y) {
@@ -1701,6 +1745,13 @@
     if (G.risks.length) { const lvl = riskLevel(G.risks.length); text(`CORNERS CUT (${lvl.name}, score x${lvl.mult}): ${G.risks.map(r => r.tag).join(', ')}`, W / 2, y + 50, 7, lvl.color, 'center'); }
   }
   function drawEndPrompt(y, again) {
+    if (TOUCH) { // two tap targets: left half returns to the pilots, right half retries
+      for (const [x, label, col] of [[W / 2 - 150, 'CHOOSE PILOT', '#cfe3ff'], [W / 2 + 150, again, '#5cff5c']]) {
+        ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(x - 120, y - 18, 240, 36); ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.strokeRect(x - 120, y - 18, 240, 36);
+        text(label, x, y, 10, col, 'center');
+      }
+      return;
+    }
     if (Math.floor(elapsed * 2) % 2 === 0) text(`ENTER: CHOOSE PILOT   R: ${again}`, W / 2, y, 11, '#fff', 'center');
   }
   // "THE LITTLE SUBMARINE THAT COULD" + a bigger, bleeding "N'T".
@@ -1829,7 +1880,7 @@
     if (flash > 0) { ctx.fillStyle = `rgba(255,80,80,${flash * 0.5})`; ctx.fillRect(0, 0, W, H); }
     if (G.player.deep > 0 && (state === 'play' || state === 'paused')) { ctx.fillStyle = 'rgba(70,130,255,0.14)'; ctx.fillRect(0, 0, W, H); }
     drawHUD();
-    if (state === 'paused') { ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, W, H); text('PAUSED', W / 2, H / 2 - 10, 24, '#fff', 'center'); text('P, Esc, Enter or click to resume   ·   M: mute', W / 2, H / 2 + 25, 10, '#cfe3ff', 'center'); }
+    if (state === 'paused') { ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, W, H); text('PAUSED', W / 2, H / 2 - 10, 24, '#fff', 'center'); text(TOUCH ? 'Tap to resume' : 'P, Esc, Enter or click to resume   ·   M: mute', W / 2, H / 2 + 25, 10, '#cfe3ff', 'center'); }
     if (state === 'gameover') drawEnd(false);
     if (state === 'win') drawEnd(true);
     ctx.restore();
