@@ -147,7 +147,7 @@ index.html?autostart=1&pilot=thomas&depth=2599&autofire=1&turbo=1
 |------------|--------|
 | `autostart=1` | skip the title screen |
 | `pilot=thomas\|robert\|veerle` | choose the pilot |
-| `depth=<m>` | start at that depth (e.g. `2599` for the MDR boss, `3999` for SCARLET) |
+| `depth=<m>` | start every run at that depth, with or without `autostart` (e.g. `2599` for the MDR boss, `3999` for SCARLET) |
 | `autofire=1` | hold fire automatically |
 | `turbo=<n>` | run `n` simulation steps per frame (fast-forward) |
 | `god=1` | the pilot cannot be hurt (for checking boss stages) |
