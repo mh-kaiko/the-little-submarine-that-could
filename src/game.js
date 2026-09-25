@@ -133,6 +133,7 @@
 
   // ------------------------------------------------------------ state
   let TURBO = 1, GOD = false; // debug: ?turbo=n fast-forwards, ?god=1 makes the pilot unhurtable
+  let START_DEPTH = 0; // debug: ?depth=N starts every run (select, R retry, autostart) at N metres
   let state = 'title';
   let selected = 'thomas';
   let keys = {};
@@ -151,7 +152,7 @@
     };
     G.bullets = []; G.ebullets = []; G.enemies = []; G.hazards = []; G.pickups = []; G.beams = [];
     G.particles = []; G.texts = []; G.bubbles = [];
-    G.depth = 0; G.score = 0; G.time = 0; G.kills = 0;
+    G.depth = START_DEPTH; G.score = 0; G.time = 0; G.kills = 0;
     G.spawnT = 1.5; G.hazardT = 6; G.pickupT = 8; G.zoneIdx = -1; G.banner = null;
     G.boss = null; G.bossDefeated = {}; G.scrollX = 0; G.wave = null; G.endAt = 0; G.drips = []; G.winAt = 0; G.confetti = [];
     for (let i = 0; i < 40; i++) G.bubbles.push({ x: rand(0, W), y: rand(0, H), r: rand(1, 4), s: rand(15, 45) });
@@ -1204,12 +1205,12 @@
   const Q = new URLSearchParams(location.search);
   TURBO = clamp(parseInt(Q.get('turbo') || '1', 10) || 1, 1, 200);
   GOD = !!Q.get('god');
+  START_DEPTH = clamp(parseFloat(Q.get('depth')) || 0, 0, MAX_DEPTH);
   if (Q.get('debug')) window.KAIKO = { G, CHARACTERS, get state() { return state; } };
   loadAssets(() => {
     if (Q.get('autostart')) {
       selected = CHARACTERS[Q.get('pilot')] ? Q.get('pilot') : selected;
       startGame();
-      if (Q.get('depth')) G.depth = clamp(parseFloat(Q.get('depth')) || 0, 0, MAX_DEPTH);
       if (Q.get('autofire')) keys.Space = true;
     }
     requestAnimationFrame(frame);
