@@ -156,7 +156,7 @@
     if (state === 'title') {
       if (y > 150 && y < 440) { selected = PILOTS[clamp(Math.floor(x / (W / PILOTS.length)), 0, PILOTS.length - 1)]; Sound.play('select'); }
       if (y >= 450) startGame();
-    } else if (state === 'gameover' || state === 'win') { state = 'title'; }
+    } else if (state === 'gameover' || state === 'win') toTitle();
   });
   function onKey(code) {
     if (code === 'KeyM') { Sound.toggleMute(); return; }
@@ -172,10 +172,11 @@
     } else if (state === 'paused') {
       if (code === 'KeyP' || code === 'Escape' || code === 'Enter') state = 'play';
     } else if (state === 'gameover' || state === 'win') {
-      if (code === 'Enter' || code === 'Space') state = 'title';
+      if (code === 'Enter' || code === 'Space') toTitle();
       if (code === 'KeyR') startGame();
     }
   }
+  function toTitle() { state = 'title'; shake = 0; flash = 0; } // the game-over shake must not follow you to the title
   function startGame() { newGame(selected); state = 'play'; Sound.startMusic(); Sound.play('select'); }
 
   // ------------------------------------------------------------ spawning
@@ -564,7 +565,6 @@
   // ------------------------------------------------------------ update
   function update(dt) {
     elapsed += dt;
-    shake = Math.max(0, shake - dt); flash = Math.max(0, flash - dt * 2); // fade on every screen, not just in play
     if (state !== 'play') return;
     const p = G.player, c = G.char;
     G.time += dt;
@@ -710,6 +710,7 @@
     for (const t of G.texts) { t.t += dt; t.y -= 30 * dt; if (t.t > t.life) t.dead = true; }
     for (const b of G.bubbles) { b.y -= b.s * wdt; b.x -= 20 * wdt; if (b.y < -10) { b.y = H + 10; b.x = rand(0, W); } if (b.x < -10) b.x = W + 10; }
     if (G.banner) { G.banner.t -= dt; if (G.banner.t <= 0) G.banner = null; }
+    shake = Math.max(0, shake - dt); flash = Math.max(0, flash - dt * 2);
 
     // cleanup
     G.enemies = G.enemies.filter(e => !e.dead);
