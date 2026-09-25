@@ -46,6 +46,7 @@ python3 -m http.server 8000
 | TOKEN TOP-UP  | +50 tokens |
 | INVESTOR DEAL | +45 funding, but −40 tokens |
 | AZURE CREDITS | +70 tokens, but −15 funding |
+| MDR CERT      | Dropped by the MDR boss only. Permanent +25% damage for the rest of the run |
 
 ## Hazards
 
@@ -64,6 +65,22 @@ python3 -m http.server 8000
 | 4000 m  | **Final boss: SCARLET review** | Win = CE mark obtained |
 
 Spawn rate and enemy fire rate scale smoothly with depth so every element gets seen before things get hectic.
+
+## Boss: MDR audit
+
+MDR parks on the right and runs an audit in stages keyed to its hp. Each stage ticks a box on the
+checklist at the top of the screen: CLINICAL EVIDENCE at 70%, RISK FILE at 40%, POST-MARKET at 15%.
+
+| Stage | hp | What it does |
+|-------|----|--------------|
+| Documentation request | above 70% | Walls of documents with a two-row gap that shifts each volley, aimed paragraphs in between |
+| Conformity test | 40 to 70% | A telegraphed red scan beam sweeps right to left and drains tokens, then an alarm fan and aimed shots |
+| Non-conformity | below 40% | Siren on. Calls in two Regulatory minions and keeps them topped up, rotating alarm spirals, faster scans, one-row walls |
+| Final warning | below 15% | Same, faster |
+
+MDR only takes full damage while one of its document walls is on screen ("distracted by paperwork"). It takes
+half damage during a scan and 70% otherwise, so attack during the walls. Killing it clears the minions and drops
+MDR CERT plus funding and tokens.
 
 ## Project layout
 
@@ -95,3 +112,4 @@ index.html?autostart=1&pilot=thomas&depth=2599&autofire=1&turbo=1
 | `depth=<m>` | start at that depth (e.g. `2599` for the MDR boss, `3999` for SCARLET) |
 | `autofire=1` | hold fire automatically |
 | `turbo=<n>` | run `n` simulation steps per frame (fast-forward) |
+| `god=1` | the pilot cannot be hurt (for checking boss stages) |
