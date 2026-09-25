@@ -1314,20 +1314,31 @@
       ctx.restore();
     }
   }
+  function drawCross(x, y, size, color) { // pixel medical cross
+    const t = size / 3; ctx.fillStyle = color; ctx.fillRect(x - t / 2, y - size / 2, t, size); ctx.fillRect(x - size / 2, y - t / 2, size, t);
+  }
   function drawVictory() {
     drawConfetti();
-    const c = G.char, sw = c.width * 1.2, sh = spriteH(c.sprite, sw);
-    const sub = { x: W / 2, y: H / 2 - 150 + Math.sin(elapsed * 2) * 6, w: sw, h: sh, tilt: 0 };
+    const t = elapsed - G.endAt, c = G.char, sw = c.width * 1.1, sh = spriteH(c.sprite, sw);
+    const sub = { x: W / 2, y: H / 2 - 170 + Math.sin(elapsed * 2) * 6, w: sw, h: sh, tilt: 0 };
     drawPilotHead(sub, c);
     drawSprite(c.sprite, sub.x, sub.y, sw, sh);
     drawGear(sub, c);
-    text('CONGRATULATIONS!', W / 2, H / 2 - 62, 26, '#5cff5c', 'center');
-    text("You've solved healthcare.", W / 2, H / 2 - 28, 12, '#fff', 'center');
-    text('Kaiko is now deployed in every hospital in the EU,', W / 2, H / 2 - 4, 9, '#dfe8ff', 'center');
-    text('helping a million clinicians treat millions of patients.', W / 2, H / 2 + 12, 9, '#dfe8ff', 'center');
-    text('SCARLET signed off. CE mark obtained.', W / 2, H / 2 + 34, 8, '#9fc3ff', 'center');
-    drawRunStats(H / 2 + 65);
-    drawEndPrompt(H / 2 + 130, 'PLAY AGAIN');
+    text('CONGRATULATIONS!', W / 2, H / 2 - 100, 14, '#5cff5c', 'center');
+    // the headline: healthcare, solved, glowing between two pulsing medical crosses
+    const head = "YOU'VE SOLVED HEALTHCARE", pulse = 0.5 + 0.5 * Math.sin(t * 3), hy = H / 2 - 62;
+    ctx.font = `28px ${FONT}`; const hw = ctx.measureText(head).width;
+    ctx.save(); ctx.shadowColor = '#5cff5c'; ctx.shadowBlur = 10 + 14 * pulse;
+    text(head, W / 2, hy, 28, '#ffffff', 'center', false);
+    const cs = 26 + 4 * pulse; drawCross(W / 2 - hw / 2 - 34, hy, cs, '#ff3b3b'); drawCross(W / 2 + hw / 2 + 34, hy, cs, '#ff3b3b');
+    ctx.restore();
+    text('Kaiko is now deployed in every hospital in the EU,', W / 2, H / 2 - 22, 10, '#dfe8ff', 'center');
+    text('helping a million clinicians treat millions of patients.', W / 2, H / 2 - 4, 10, '#dfe8ff', 'center');
+    const clinicians = Math.round(1000000 * (1 - (1 - clamp(t / 2.5, 0, 1)) ** 3)); // counts up, easing into the million
+    text(`${clinicians.toLocaleString('en-US')} CLINICIANS ON BOARD`, W / 2, H / 2 + 28, 14, '#ffe066', 'center');
+    text('SCARLET signed off. CE mark obtained.', W / 2, H / 2 + 52, 8, '#9fc3ff', 'center');
+    drawRunStats(H / 2 + 80);
+    drawEndPrompt(H / 2 + 140, 'PLAY AGAIN');
   }
   function drawEnd(win) {
     ctx.fillStyle = win ? 'rgba(0,40,20,0.75)' : 'rgba(40,0,0,0.75)'; ctx.fillRect(0, 0, W, H);
