@@ -29,11 +29,12 @@ With the server running, open one of these links. The game skips the title scree
 |------|------|
 | Sunlit (coral reef) | http://localhost:8000/?autostart=1 |
 | Twilight (rocky canyon) | http://localhost:8000/?autostart=1&depth=900 |
-| Midnight (caves) | http://localhost:8000/?autostart=1&depth=1700 |
-| MDR boss | http://localhost:8000/?autostart=1&depth=2599 |
-| Abyssal (trench, vents) | http://localhost:8000/?autostart=1&depth=2700 |
-| Abyssal, in the dark | http://localhost:8000/?autostart=1&depth=3300 |
-| SCARLET final boss | http://localhost:8000/?autostart=1&depth=3999 |
+| Midnight (caves) | http://localhost:8000/?autostart=1&depth=1600 |
+| MDR boss | http://localhost:8000/?autostart=1&depth=2199 |
+| Abyssal (trench, vents) | http://localhost:8000/?autostart=1&depth=2300 |
+| SCARLET boss | http://localhost:8000/?autostart=1&depth=3199 |
+| Hadal, in the dark | http://localhost:8000/?autostart=1&depth=3400 |
+| CANCER final boss | http://localhost:8000/?autostart=1&depth=3999 |
 
 Append `&pilot=thomas`, `&pilot=robert` or `&pilot=veerle` to pick a pilot, and `&god=1` to be unhurtable.
 See [Debug / testing URL parameters](#debug--testing-url-parameters) for all options.
@@ -119,12 +120,32 @@ Destructible crates give points and sometimes drop a pickup. Thomas's FUNDRAISE 
 |---------|-------------------------------|-------------|
 | 0 m     | Sunlit zone: Onboarding       | Datadesk, IT |
 | 700 m   | Twilight zone: Hospital rounds| Legal, Research, Dept. Hospital |
-| 1600 m  | Midnight zone: Compliance trench | Regulatory, GDPR |
-| 2600 m  | **Boss: MDR audit**           | |
-| 2600 m+ | Abyssal zone: Certification run | everything, faster |
-| 4000 m  | **Final boss: SCARLET review** | Win = CE mark obtained |
+| 1500 m  | Midnight zone: Compliance trench | Regulatory, GDPR |
+| 2200 m  | **Boss: MDR audit**           | |
+| 2200 m+ | Abyssal zone: Certification run | everything, faster |
+| 3200 m  | **Boss: SCARLET review**      | CE mark obtained |
+| 3200 m+ | Hadal zone: Deployment        | everything, fastest |
+| 4000 m  | **Final boss: CANCER**        | Win = remission |
 
 Spawn rate and enemy fire rate scale smoothly with depth so every element gets seen before things get hectic.
+
+## Final boss: Cancer
+
+A tumour mass with a glowing core, at 4000 m. The mass takes 20% damage. The core (its mouth, facing
+you) opens on a cycle: closed 3 s, a white flash for 0.5 s, open 2 s. Plain shots fired at the mouth's
+height fly into it while it is open and hit the core for full damage; shots that land during the flash
+do triple damage ("early detection"). OPUS 6, VORTEX 3 and STAY ON TOPIC shots always reach the core,
+at reduced damage while it is closed.
+DEEP THOUGHT doubles the open window. Opening the mouth also spits a fan of spores at you, so do not camp
+in front of it. Tentacles sweep up and down in front of it and reach further with every stage.
+
+| Stage | hp | What it does |
+|-------|----|--------------|
+| Growth | above 70% | Buds tumour cells that drift at you and split once after 5 s. One shot kills a cell; cells sometimes drop OPUS 6 |
+| Metastasis | 30 to 70% | Fires fast, weaving metastatic cells that home in on you. Shoot one down (4 hits) or it seeds a tumour in the left third of the screen that grows hp and fires spores at your back |
+| Resistance | below 30% | Regrows 6 hp/s whenever it has not been hit for 2 s, the abyss fog closes in, a third tentacle reaches your lane, metastatic cells come in pairs |
+
+Killing it clears everything it spawned and ends the run in remission. Jump straight to it with `?depth=3999`.
 
 ## Boss: MDR audit
 
@@ -169,7 +190,7 @@ index.html?autostart=1&pilot=thomas&depth=2599&autofire=1&turbo=1
 |------------|--------|
 | `autostart=1` | skip the title screen |
 | `pilot=thomas\|robert\|veerle` | choose the pilot |
-| `depth=<m>` | start every run at that depth, with or without `autostart` (e.g. `2599` for the MDR boss, `3999` for SCARLET) |
+| `depth=<m>` | start every run at that depth, with or without `autostart` (e.g. `2199` for MDR, `3199` for SCARLET, `3999` for cancer) |
 | `autofire=1` | hold fire automatically |
 | `turbo=<n>` | run `n` simulation steps per frame (fast-forward) |
 | `god=1` | the pilot cannot be hurt (for checking boss stages) |

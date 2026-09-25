@@ -82,7 +82,20 @@ def portrait(name, tol=24, width=256):
     print(f'{name:12s} {width}x{h}')
 
 
+def cutout(name, out, width, min_alpha=1):
+    """Art that already has a transparent background: crop to content and shrink for the web."""
+    arr = np.array(Image.open(f'{RAW}/{name}.png').convert('RGBA'))
+    arr[:, :, 3] = np.where(arr[:, :, 3] >= min_alpha, arr[:, :, 3], 0)
+    arr = crop_to_content(arr, pad=0)
+    im = Image.fromarray(arr)
+    h = round(im.height * width / im.width)
+    im.resize((width, h), Image.LANCZOS).save(f'{OUT}/{out}.png')
+    print(f'{out:12s} {width}x{h}')
+
+
 if __name__ == '__main__':
+    cutout('final_boss', 'cancer', 640)
+    cutout('final_boss_projectile', 'cancer_cell', 320, min_alpha=40)
     portrait('robert')
     portrait('thomas')
     portrait('veerle')
