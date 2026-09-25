@@ -564,6 +564,7 @@
   // ------------------------------------------------------------ update
   function update(dt) {
     elapsed += dt;
+    shake = Math.max(0, shake - dt); flash = Math.max(0, flash - dt * 2); // fade on every screen, not just in play
     if (state !== 'play') return;
     const p = G.player, c = G.char;
     G.time += dt;
@@ -709,7 +710,6 @@
     for (const t of G.texts) { t.t += dt; t.y -= 30 * dt; if (t.t > t.life) t.dead = true; }
     for (const b of G.bubbles) { b.y -= b.s * wdt; b.x -= 20 * wdt; if (b.y < -10) { b.y = H + 10; b.x = rand(0, W); } if (b.x < -10) b.x = W + 10; }
     if (G.banner) { G.banner.t -= dt; if (G.banner.t <= 0) G.banner = null; }
-    shake = Math.max(0, shake - dt); flash = Math.max(0, flash - dt * 2);
 
     // cleanup
     G.enemies = G.enemies.filter(e => !e.dead);
