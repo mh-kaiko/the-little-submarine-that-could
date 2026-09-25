@@ -62,7 +62,7 @@
   CHARACTERS.pm = {
     key: 'pm', name: 'PERSONALIZED MEDICINE', title: 'CHEAT', sprite: 'kaiko_sub', color: '#ff5ca8', op: true,
     gear: { art: 'dna', x: 0.03, y: -0.4, px: 1 / 60, bob: true }, // DNA helix standing on the hull where a pilot would be
-    width: 170, hitScale: 0.5, speed: 380, funding: 999, tokens: 999, fireRate: 0.07, tokenRegen: 300, bulletDmg: 4,
+    width: 170, hitScale: 0.5, speed: 470, funding: 999, tokens: 999, fireRate: 0.07, tokenRegen: 300, bulletDmg: 4,
     blurb: ['Tailored to every patient.', 'Unstoppable.', ''],
     special: { name: 'TAILORED THERAPY', cost: 0, cooldown: 2, desc: ['Free screen-clearing wave', 'every 2 seconds.', ''] },
   };
@@ -116,7 +116,7 @@
   const WAVE_TIME = 2.2, WAVE_REACH = 1100; // FUNDRAISE: seconds for the pitch wave to cross the screen
   const SLOWMO_TIME = 0.7, SLOWMO_SCALE = 0.25; // boss kill: real seconds of slow motion and the speed during it
   const LETTERBOX_TIME = 2.5;                   // boss entrance: seconds of cinematic bars
-  const PM_SPEED = 1.8; // PERSONALIZED MEDICINE: the whole world runs this much faster, always
+  const PM_SPEED = 2.8; // PERSONALIZED MEDICINE: the whole world runs this much faster, always
   const DEEP_SCALE = 0.3;   // DEEP THOUGHT: world speed while active; Kaiko keeps full speed
   const TOPIC_FIRE = 0.66;  // STAY ON TOPIC: fire cooldown multiplier (about 1.5x the fire rate)
   const HOMING_TURN = 12.6; // rad/s a homing shot can turn (about 720 degrees per second)
@@ -1422,7 +1422,7 @@
     drawBackground(clamp(G.depth / MAX_DEPTH, 0, 1), G.scrollX, 1);
     if (G.char.op && state !== 'title') { // speed lines: PERSONALIZED MEDICINE runs the world fast
       ctx.save(); ctx.fillStyle = '#ffffff';
-      for (let i = 0; i < 22; i++) { const len = 60 + (i * 37) % 110, x = W + 100 - ((elapsed * 1500 + i * 211) % (W + 300)), y = 50 + (i * 97) % (H - 70); ctx.globalAlpha = 0.12 + (i % 4) * 0.05; ctx.fillRect(x, y, len, 2); }
+      for (let i = 0; i < 22; i++) { const len = 60 + (i * 37) % 110, x = W + 100 - ((elapsed * 2400 + i * 211) % (W + 300)), y = 50 + (i * 97) % (H - 70); ctx.globalAlpha = 0.12 + (i % 4) * 0.05; ctx.fillRect(x, y, len, 2); }
       ctx.restore();
     }
     drawBubbles();
