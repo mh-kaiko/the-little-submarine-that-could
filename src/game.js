@@ -1301,6 +1301,17 @@
     g.addColorStop(0, 'rgba(120,0,30,0)'); g.addColorStop(1, `rgba(120,0,30,${0.35 + 0.2 * b.stage})`);
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
   }
+  const LOW_FUNDING = 0.3; // below this fraction the screen edges pulse red, harder the closer to zero
+  function drawLowFunding() {
+    const p = G.player, frac = p.funding / p.maxFunding;
+    if (state !== 'play' && state !== 'paused' || frac >= LOW_FUNDING || p.funding <= 0) return;
+    const danger = 1 - frac / LOW_FUNDING; // 0 at the threshold, 1 at empty
+    const beat = Math.pow(Math.max(0, Math.sin(elapsed * (5 + 5 * danger))), 6); // sharp heartbeat, faster when worse
+    const a = 0.26 + 0.34 * danger + 0.25 * beat * (0.4 + 0.6 * danger);
+    const g = ctx.createRadialGradient(W / 2, H / 2, H * (0.4 - 0.15 * danger), W / 2, H / 2, H * 0.9);
+    g.addColorStop(0, 'rgba(180,0,20,0)'); g.addColorStop(1, `rgba(180,0,20,${a})`);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  }
   function drawBullets() {
     for (const b of G.bullets) {
       if (b.kind === 'vortex') {
@@ -1769,6 +1780,7 @@
     drawBullets();
     drawEffects();
     drawVignette();
+    drawLowFunding();
     ctx.restore();
     if (G.letterbox > 0) { const k = Math.min(1, G.letterbox * 2, (LETTERBOX_TIME - G.letterbox) * 4), bh = 48 * k; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, bh); ctx.fillRect(0, H - bh, W, bh); } // boss entrance
     if (flash > 0) { ctx.fillStyle = `rgba(255,80,80,${flash * 0.5})`; ctx.fillRect(0, 0, W, H); }
