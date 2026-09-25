@@ -9,11 +9,13 @@
 
   // ------------------------------------------------------------ assets
   const IMG = {};
-  const SPRITES = ['kaiko_sub', 'kaiko_mini', 'kaiko_dome', 'robert', 'thomas', 'veerle', 'datadesk', 'legal', 'hospital', 'research', 'it', 'regulatory', 'gdpr', 'mdr', 'scarlet'];
+  const SPRITES = ['kaiko_sub', 'kaiko_mini', 'kaiko_dome', 'robert', 'thomas', 'veerle', 'datadesk', 'legal', 'hospital', 'research', 'it', 'regulatory', 'gdpr', 'mdr', 'scarlet', 'cancer', 'cancer_cell', 'tech_debt'];
   function loadAssets(done) {
-    let left = SPRITES.length + 1;
+    // Pickup art is optional: assets/sprites/pickup_<kind>.png replaces the coloured box when present.
+    const names = SPRITES.concat(Object.keys(POWERUPS).map(k => `pickup_${k}`));
+    let left = names.length + 1;
     const one = () => { if (--left === 0) done(); };
-    SPRITES.forEach(n => { const i = new Image(); i.onload = one; i.onerror = one; i.src = `assets/sprites/${n}.png`; IMG[n] = i; });
+    names.forEach(n => { const i = new Image(); i.onload = one; i.onerror = one; i.src = `assets/sprites/${n}.png`; IMG[n] = i; });
     const o = new Image(); o.onload = one; o.onerror = one; o.src = 'assets/raw/ocean.png'; IMG.ocean = o;
   }
   const spriteH = (name, w) => { const i = IMG[name]; return i && i.naturalWidth ? w * i.naturalHeight / i.naturalWidth : w * 0.8; };
@@ -99,17 +101,30 @@
     gdpr:       { sprite: 'gdpr',       w: 92,  hp: 6,  speed: 85,  move: 'drift',  amp: 15, freq: 3.0, shoot: 1.6, bullet: 'binary', score: 300, name: 'GDPR' },
     mdr:        { sprite: 'mdr',        w: 230, hp: 80, speed: 0,   move: 'boss',   amp: 0,  freq: 0,   shoot: 0,   bullet: null,     score: 3000, name: 'MDR', boss: true },
     scarlet:    { sprite: 'scarlet',    w: 250, hp: 120, speed: 0,  move: 'boss',   amp: 0,  freq: 0,   shoot: 0,   bullet: null,     score: 6000, name: 'SCARLET', boss: true },
+    cancer:     { sprite: 'cancer',     w: 300, hp: 280, speed: 0,  move: 'boss',   amp: 0,  freq: 0,   shoot: 0,   bullet: null,     score: 10000, name: 'CANCER', boss: true },
+    tcell:      { sprite: 'cancer_cell', w: 40, hp: 2,  speed: 110, move: 'cell',   amp: 0,  freq: 0,   shoot: 0,   bullet: null,     score: 30,  name: 'Tumour cell', flip: true },
+    seed:       { sprite: 'cancer_cell', w: 64, hp: 6,  speed: 0,   move: 'seed',   amp: 0,  freq: 0,   shoot: 2.2, bullet: 'spore',  score: 200, name: 'Metastasis' },
+  };
+  // Cancer, the final boss: the core (its glowing mouth) is the only real weak point and it opens on a cycle.
+  const CANCER_STAGES = [0.7, 0.3]; // growth above 70%, metastasis to 30%, resistance below
+  const CANCER_CLOSED = 3.0, CANCER_TELL = 0.5, CANCER_OPEN = 2.0;
+  const BOSS_BANNERS = {
+    mdr: { title: 'WARNING: MDR AUDIT', sub: 'Prove your device is safe.' },
+    scarlet: { title: 'REVIEW: SCARLET', sub: 'Get that CE mark.' },
+    cancer: { title: 'FINAL BOSS: CANCER', sub: "Every hospital's real enemy. Hit the core when it opens." },
   };
 
   // Depth zones: enemies are introduced gradually so every element can be seen.
   const ZONES = [
     { depth: 0,    name: 'SUNLIT ZONE',    sub: 'Onboarding',        enemies: [['datadesk', 3], ['it', 2]] },
     { depth: 700,  name: 'TWILIGHT ZONE',  sub: 'Hospital rounds',   enemies: [['datadesk', 2], ['it', 2], ['legal', 3], ['research', 2], ['hospital', 1]] },
-    { depth: 1600, name: 'MIDNIGHT ZONE',  sub: 'Compliance trench', enemies: [['legal', 2], ['research', 2], ['hospital', 2], ['regulatory', 3], ['gdpr', 3]] },
-    { depth: 2600, name: 'BOSS',           sub: 'MDR audit',         boss: 'mdr' },
-    { depth: 2601, name: 'ABYSSAL ZONE',   sub: 'Certification run', enemies: [['it', 1], ['legal', 1], ['hospital', 2], ['regulatory', 3], ['gdpr', 3], ['research', 1]],
+    { depth: 1500, name: 'MIDNIGHT ZONE',  sub: 'Compliance trench', enemies: [['legal', 2], ['research', 2], ['hospital', 2], ['regulatory', 3], ['gdpr', 3]] },
+    { depth: 2200, name: 'BOSS',           sub: 'MDR audit',         boss: 'mdr' },
+    { depth: 2201, name: 'ABYSSAL ZONE',   sub: 'Certification run', enemies: [['it', 1], ['legal', 1], ['hospital', 2], ['regulatory', 3], ['gdpr', 3], ['research', 1]],
       spawnMul: 1.5, pair: 0.12, fireMul: 1.3 }, // after the MDR fight: fewer small enemies, slower enemy fire
-    { depth: 4000, name: 'FINAL BOSS',     sub: 'SCARLET review',    boss: 'scarlet' },
+    { depth: 3200, name: 'BOSS',           sub: 'SCARLET review',    boss: 'scarlet' },
+    { depth: 3201, name: 'HADAL ZONE',     sub: 'Deployment',        enemies: [['it', 2], ['legal', 2], ['hospital', 3], ['regulatory', 3], ['gdpr', 3], ['research', 3]] },
+    { depth: 4000, name: 'FINAL BOSS',     sub: 'Cancer',            boss: 'cancer' },
   ];
   const FINAL_BOSS = ZONES.filter(z => z.boss).pop().boss;
   const MAX_DEPTH = 4000;
@@ -117,6 +132,7 @@
   const WAVE_TIME = 2.2, WAVE_REACH = 1100; // FUNDRAISE: seconds for the pitch wave to cross the screen
   const SLOWMO_TIME = 0.7, SLOWMO_SCALE = 0.25; // boss kill: real seconds of slow motion and the speed during it
   const LETTERBOX_TIME = 2.5;                   // boss entrance: seconds of cinematic bars
+  const THERAPY_ZAP = 0.35, THERAPY_TIME = 1.2; // TAILORED THERAPY: lock-on time, total animation time
   const PM_SCROLL = 2.2; // ...and the ocean scrolls this much faster again on top of that
   const PM_SPEED = 2.8; // PERSONALIZED MEDICINE: the whole world runs this much faster, always
   const DEEP_SCALE = 0.3;   // DEEP THOUGHT: world speed while active; Kaiko keeps full speed
@@ -172,7 +188,7 @@
       wall: '#34405e', inner: '#232c45', edge: '#6a7ba3', accent: ['#b0643a', '#8a4a2a'], box: { label: 'NDA', hp: 5, score: 80 } },
     { key: 'cave',   depth: 1600, ceiling: true,  gap: [240, 330], slope: 0.7,  noise: 12, tunnel: [2000, 3000], open: [400, 700], rock: 0.4,  crate: 0,    vent: 0,   chamber: 0.35,
       wall: '#2e2446', inner: '#1c1530', edge: '#6b58a0', accent: ['#8e7bd1', '#b8a6ff'], box: null }, // no crates in the cave: red tape was confusing
-    { key: 'trench', depth: 2600, ceiling: true,  gap: [200, 290], slope: 0.85, noise: 8,  tunnel: [2400, 3600], open: [300, 600], rock: 0.25, crate: 0.25, vent: 0.55, chamber: 0.35,
+    { key: 'trench', depth: 2200, ceiling: true,  gap: [200, 290], slope: 0.85, noise: 8,  tunnel: [2400, 3600], open: [300, 600], rock: 0.25, crate: 0.25, vent: 0.55, chamber: 0.35,
       wall: '#1e1719', inner: '#110c0e', edge: '#4a3a3c', accent: ['#ff5a1f', '#ffb347'], box: { label: 'LEGACY', hp: 8, score: 120 } },
   ];
 
@@ -206,7 +222,7 @@
       fireCd: 0, invuln: 0, shield: 0, opus: 0, vortex: 0, deep: 0, onTopic: 0, specialCd: 0, tilt: 0, drain: 0,
     };
     G.bullets = []; G.ebullets = []; G.enemies = []; G.hazards = []; G.pickups = []; G.beams = [];
-    G.particles = []; G.texts = []; G.bubbles = []; G.drain = []; G.bills = []; G.fly = []; G.helix = []; G.bases = []; G.helixN = 0;
+    G.particles = []; G.texts = []; G.bubbles = []; G.drain = []; G.bills = []; G.fly = []; G.helix = []; G.bases = []; G.helixN = 0; G.therapy = null;
     G.hud = { fundGlow: 0, tokGlow: 0, tokEmpty: 0, chunk: null }; G.ripple = null; G.slowmo = 0; G.focus = null; G.letterbox = 0;
     G.depth = START_DEPTH; G.score = 0; G.time = 0; G.kills = 0;
     G.spawnT = 1.5; G.hazardT = 6; G.pickupT = 8; G.zoneIdx = -1; G.banner = null;
@@ -323,7 +339,8 @@
     // depth this column will be at when it reaches the player; walls recede before boss fights
     const depth = G.depth + Math.max(0, g.wx - G.scrollX - 160) / SCROLL * DESCENT_RATE;
     const th = terrainTheme(depth);
-    const calm = G.boss || (!G.bossDefeated.mdr && G.depth <= 2600 && depth > 2450) || depth > MAX_DEPTH - 150;
+    const nextBoss = ZONES.find(z => z.boss && !G.bossDefeated[z.boss] && G.depth <= z.depth);
+    const calm = G.boss || (nextBoss && depth > nextBoss.depth - 150) || depth > MAX_DEPTH - 150;
     g.left -= TSTEP;
     if (calm) { g.mode = 'open'; g.left = Math.max(g.left, 300); }
     else if (g.left <= 0 && g.hold === 0) {
@@ -466,8 +483,9 @@
     b.hw = b.w * 0.34; b.hh = b.h * 0.34; b.phase = 0; b.shootT = 1.5; b.entering = true;
     b.hp = b.maxHp = Math.round(b.d.hp * G.mods.bossHp);
     if (key === 'mdr') { b.stage = 0; b.checks = [false, false, false]; b.gapRow = 3; b.wallT = 0; b.spiral = 0; b.minionT = 8; b.cycle = 0; }
+    if (key === 'cancer') { b.stage = 0; b.cycle = 0; b.core = 'closed'; b.coreT = CANCER_CLOSED; b.lastHit = 0; b.tents = [{ dx: -170, ph: 0 }, { dx: -300, ph: 2.1 }]; }
     G.boss = b; G.letterbox = LETTERBOX_TIME;
-    G.banner = { title: key === 'mdr' ? 'WARNING: MDR AUDIT' : 'FINAL REVIEW: SCARLET', sub: key === 'mdr' ? 'Prove your device is safe.' : 'Get that CE mark.', t: 3.2, boss: true };
+    G.banner = { ...BOSS_BANNERS[key], t: 3.2, boss: true };
     Sound.play('special');
   }
 
@@ -516,7 +534,10 @@
     p.tokens -= s.cost; p.specialCd = s.cooldown * G.mods.specialCd;
     Sound.play('special');
     if (c.op) {
-      G.wave = { x: p.x, y: p.y, t: 0, hit: new Set(), dmg: 15, bossDmg: 25 };
+      // lock onto everything on screen, then zap it all at THERAPY_ZAP
+      const targets = [...G.enemies.filter(e => !e.dead && e.x < W + 40), ...G.blocks.filter(b => b.kind === 'crate' && !b.dead && b.wx - G.scrollX < W)];
+      for (const b of G.ebullets) { b.dead = true; burst(b.x, b.y, `hsl(${rand(0, 360)}, 100%, 70%)`, 3, 90); }
+      G.therapy = { x: p.x, y: p.y, t: 0, targets, zapped: false, bolts: [] };
       addText(p.x, p.y - 60, 'TAILORED THERAPY!', c.color);
     } else if (c.key === 'thomas') {
       G.wave = { x: p.x, y: p.y, t: 0, hit: new Set(), dmg: 3, bossDmg: 6 }; // damage lands as the wave front reaches each enemy
@@ -545,6 +566,7 @@
   }
   function damageEnemy(e, dmg, silent) {
     if (e.type === 'mdr') dmg *= mdrGuard(e); // MDR only takes full damage while distracted by its own paperwork
+    if (e.type === 'cancer') e.lastHit = G.time; // resistance stage regrows when left alone
     e.hp -= dmg; e.flash = 0.08;
     if (!silent) Sound.play('hit');
     if (e.hp <= 0 && !e.dead) {
@@ -558,14 +580,20 @@
         if (e.type === 'mdr') {
           for (const o of G.enemies) if (!o.d.boss && !o.dead) { o.dead = true; burst(o.x, o.y, '#ffb347', 12, 200); }
           spawnPickup(e.x - 60, e.y, 'mdrcert'); spawnPickup(e.x + 10, e.y - 50, 'funding'); spawnPickup(e.x + 10, e.y + 50, 'tokens');
-        } else {
-          for (let i = 0; i < 3; i++) spawnPickup(e.x - 60 + i * 60, e.y, ['funding', 'tokens', 'opus6'][i]);
+          G.banner = { title: 'AUDIT PASSED', sub: 'Descending further...', t: 2.5 };
+        } else if (e.type === 'scarlet') {
+          for (let i = 0; i < 3; i++) spawnPickup(e.x - 60 + i * 60, e.y, ['funding', 'tokens', 'shield'][i]);
+          G.banner = { title: 'CE MARK OBTAINED', sub: 'Certified. Now for the real enemy.', t: 2.8 };
+        } else { // cancer: everything it spawned dies with it, then the run is won
+          for (const o of G.enemies) if (!o.d.boss && !o.dead) { o.dead = true; burst(o.x, o.y, '#ff4d7d', 14, 220); }
+          for (const eb of G.ebullets) eb.dead = true;
+          G.banner = { title: 'REMISSION', sub: 'The core is gone. Kaiko surfaces.', t: 2.5 };
+          G.winAt = G.time + 2.5; // let the explosion play; paused time does not count
         }
-        if (e.type === 'scarlet') G.winAt = G.time + 1.5; // let the explosion play; paused time does not count
-        else G.banner = { title: 'AUDIT PASSED', sub: 'Descending further...', t: 2.5 };
       } else {
         Sound.play('explode'); shake = Math.max(shake, 0.12);
-        if (Math.random() < 0.22) spawnPickup(e.x, e.y);
+        if (e.type === 'tcell') { if (Math.random() < 0.05) spawnPickup(e.x, e.y, 'opus6'); } // clearing cells earns targeted therapy
+        else if (Math.random() < 0.22) spawnPickup(e.x, e.y);
       }
     }
   }
@@ -644,6 +672,7 @@
       case 'doc3': [-0.3, 0, 0.3].forEach(a => push(Math.PI + a, 220)); break;
       case 'para2': [-0.15, 0.15].forEach(a => push(aim + a, 270)); break;
       case 'binary': for (let i = 0; i < 3; i++) setTimeout(() => { if (!e.dead && state === 'play') push(Math.PI + rand(-0.1, 0.1), 300, 'binary', 6); }, i * 120); break;
+      case 'spore': push(aim + rand(-0.15, 0.15), 200, 'spore', 6); break;
     }
   }
   function bossAttack(b) {
@@ -653,6 +682,7 @@
     const enraged = b.hp < b.maxHp * 0.4;
     b.phase = (b.phase + 1) % 3;
     if (b.type === 'mdr') return mdrAttack(b, push);
+    if (b.type === 'cancer') return cancerAttack(b);
     { // scarlet
       if (b.phase === 0) { for (let i = -4; i <= 4; i++) push(b.x - 90, b.y, Math.PI + i * 0.16, 260, 'stamp', 9, 14); }
       else if (b.phase === 1) { for (let i = 0; i < (enraged ? 7 : 4); i++) setTimeout(() => { if (G.boss === b && state === 'play') push(b.x - 90, b.y + rand(-80, 80), Math.atan2(p.y - b.y, p.x - b.x) + rand(-0.1, 0.1), 340, 'para', 7); }, i * 120); }
@@ -701,6 +731,64 @@
     if (s === 0 || s === 2) { spiral(); return fast; }
     if (s === 1) { scan(); return 1.6; }
     wall(1); return 2.2;
+  }
+  // --- Cancer ---------------------------------------------------------------
+  const cancerCore = (b) => ({ x: b.x + b.w * 0.05, y: b.y + b.h * 0.01, r: b.w * 0.1 }); // the glowing mouth
+  function cancerThink(b, wdt) {
+    const p = G.player;
+    let stage = 0; while (stage < CANCER_STAGES.length && b.hp / b.maxHp < CANCER_STAGES[stage]) stage++;
+    if (stage !== b.stage) {
+      b.stage = stage; Sound.play('special'); shake = Math.max(shake, 0.3); b.shootT = Math.min(b.shootT, 0.8);
+      if (stage === 1) b.tents[1].dx = -420; // reaches the middle of the screen
+      if (stage === 2) b.tents.push({ dx: -560, ph: 4.2 }); // a third arm sweeps almost to Kaiko's lane
+      G.banner = stage === 1 ? { title: 'METASTASIS', sub: 'It spreads. Shoot the cells before they land.', t: 2.6, boss: true }
+        : { title: 'TREATMENT RESISTANCE', sub: 'It regrows when you stop. Keep the pressure on.', t: 2.6, boss: true };
+    }
+    // core cycle: closed -> tell (flash) -> open -> closed. DEEP THOUGHT doubles the window.
+    b.coreT -= wdt;
+    if (b.coreT <= 0) {
+      if (b.core === 'closed') { b.core = 'tell'; b.coreT = CANCER_TELL; }
+      else if (b.core === 'tell') {
+        b.core = 'open'; b.coreT = (b.stage === 1 ? CANCER_OPEN + 0.6 : CANCER_OPEN) * (p.deep > 0 ? 2 : 1);
+        const c = cancerCore(b), a0 = Math.atan2(p.y - c.y, p.x - c.x), n = b.stage === 2 ? 9 : 6; // the open mouth spits spores
+        for (let i = 0; i < n; i++) { const a = a0 + (i - (n - 1) / 2) * 0.16; G.ebullets.push({ x: c.x - 20, y: c.y, vx: Math.cos(a) * 240, vy: Math.sin(a) * 240, kind: 'spore', r: 6, hw: 6, hh: 6, t: 0, dmg: 10, src: 'cancer' }); }
+      }
+      else { b.core = 'closed'; b.coreT = CANCER_CLOSED; }
+    }
+    if (b.stage === 2 && G.time - b.lastHit > 2) b.hp = Math.min(b.maxHp * CANCER_STAGES[1], b.hp + 6 * wdt);
+    // tentacles sweep vertically in front of the mass; touching one costs funding
+    const sp = b.stage === 2 ? 1.8 : 1.1;
+    for (const t of b.tents) {
+      t.x = b.x + t.dx; t.y = H / 2 + Math.sin(b.t * sp + t.ph) * 190;
+      for (let k = 1; k <= 3; k++) { // sample along the curve from the mass to the tip
+        const f = k / 3, sx = lerp(b.x - 40, t.x, f), sy = lerp(b.y, t.y, f * f);
+        if (Math.abs(sx - p.x) < p.hw + 14 && Math.abs(sy - p.y) < p.hh + 14) { hurtPlayer(12, 'tentacle'); break; }
+      }
+    }
+  }
+  function cancerAttack(b) {
+    const bud = (n) => { // cells split off the mass and drift toward Kaiko
+      const cells = G.enemies.filter(e => e.type === 'tcell' && !e.dead).length;
+      for (let i = 0; i < n && cells + i < 12; i++) spawnEnemy('tcell', { x: b.x - b.w * 0.2, y: clamp(b.y + pick([-1, 1]) * rand(110, 150), 40, H - 40) });
+    };
+    const meta = () => { // a metastatic cell: shoot it down or it seeds a tumour behind you
+      const p = G.player, a = Math.atan2(p.y - b.y, p.x - b.x);
+      G.ebullets.push({ x: b.x - 60, y: b.y, vx: Math.cos(a) * 250, vy: 0, vy0: Math.sin(a) * 120, wob: rand(0, 6.28), kind: 'meta', r: 16, hw: 16, hh: 16, t: 0, dmg: 14, hp: 4, src: 'cancer' });
+    };
+    const step = b.cycle++;
+    if (b.stage === 0) { bud(2); return 2.2; }
+    if (b.stage === 1) { if (step % 2 === 0) { meta(); return 2.4; } bud(2); return 1.8; }
+    if (step % 3 === 1) { meta(); setTimeout(() => { if (G.boss === b && state === 'play') meta(); }, 400); return 2.0; }
+    bud(3); return 1.5;
+  }
+  // Damage a player bullet does to the cancer, given where it struck. Targeted shots always reach the core.
+  function cancerDamage(b, bullet) {
+    const targeted = bullet.kind === 'opus' || bullet.kind === 'vortex' || bullet.homing;
+    const core = cancerCore(b), inBand = Math.abs(bullet.y - core.y) < core.r + bullet.r, atCore = inBand && bullet.x >= core.x - core.r - bullet.r;
+    if (b.core === 'tell' && (atCore || targeted)) return bullet.dmg * 3; // early detection
+    if (b.core === 'open' && (atCore || targeted)) return bullet.dmg;
+    if (targeted) return bullet.dmg * (bullet.kind === 'vortex' ? 0.8 : bullet.kind === 'opus' ? 0.4 : 0.6); // reaches the core through the closed mouth, at a cost
+    return bullet.dmg * 0.2; // the mass shrugs it off
   }
 
   // ------------------------------------------------------------ update
@@ -796,8 +884,23 @@
         case 'chase': e.x -= d.speed * wdt; e.y = lerp(e.y, p.y, 1 - Math.pow(0.35, wdt)); break;
         case 'hover': if (e.x > W - 160) e.x -= d.speed * 2 * wdt; else e.x -= d.speed * 0.25 * wdt; e.y = e.baseY + Math.sin(e.t * d.freq) * d.amp; break;
         case 'boss': {
-          if (e.entering) { e.x -= 120 * wdt; if (e.x <= W - 170) e.entering = false; }
+          if (e.type === 'cancer') { // slow, heavy, and it never leaves the right side
+            if (e.entering) { e.x -= 70 * wdt; if (e.x <= W - 190) e.entering = false; }
+            else { e.y = H / 2 + Math.sin(e.t * 0.7) * 130; e.x = W - 190 + Math.sin(e.t * 0.3) * 20; }
+          } else if (e.entering) { e.x -= 120 * wdt; if (e.x <= W - 170) e.entering = false; }
           else { e.y = H / 2 + Math.sin(e.t * 0.9) * 150; e.x = W - 170 + Math.sin(e.t * 0.4) * 30; }
+          break;
+        }
+        case 'cell': { // drifts at Kaiko; splits once if it lives five seconds
+          e.x -= d.speed * wdt; e.y += clamp(p.y - e.y, -60 * wdt, 60 * wdt); e.life = (e.life || 0) + wdt;
+          if (!e.split && e.life > 5 && e.x < W - 40 && G.enemies.filter(o => o.type === 'tcell' && !o.dead).length < 12) {
+            e.split = true; spawnEnemy('tcell', { x: e.x + 20, y: clamp(e.y + rand(-30, 30), 40, H - 40) }); burst(e.x, e.y, '#ff4d7d', 6, 120);
+          }
+          break;
+        }
+        case 'seed': { // a landed metastasis: sits still and grows tougher over time
+          e.grow = (e.grow || 0) + wdt;
+          if (e.grow > 2 && e.maxHp < 20) { e.grow = 0; e.hp += 1; e.maxHp += 1; }
           break;
         }
       }
@@ -805,6 +908,7 @@
       if (!d.boss) { const y = keepInGap(e.x, e.hw, e.y, e.hh); if (y !== e.y) { if (d.move === 'zigzag') e.dir = y > e.y ? 1 : -1; e.y = y; } }
       if (d.boss) {
         if (e.type === 'mdr' && !e.entering) mdrThink(e, wdt);
+        if (e.type === 'cancer' && !e.entering) cancerThink(e, wdt);
         if (!e.entering) { e.shootT -= wdt; if (e.shootT <= 0) { const next = bossAttack(e); e.shootT = next || (e.hp < e.maxHp * 0.4 ? 1.1 : 1.6); } }
       } else if (d.shoot && e.x < W - 40 && e.x > 60) {
         e.shootT -= wdt; if (e.shootT <= 0) { e.shootT = d.shoot * rand(0.8, 1.2) * lerp(1.2, 0.8, difficulty) * (zone.fireMul || 1); fireEnemy(e); }
@@ -824,11 +928,23 @@
         if (e.dead) continue;
         if (Math.abs(b.x - e.x) < e.hw + b.r && Math.abs(b.y - e.y) < e.hh + b.r) {
           if (b.kind === 'vortex' || b.homing) { if (!b.hitSet) b.hitSet = new Set(); if (b.hitSet.has(e)) continue; b.hitSet.add(e); }
-          damageEnemy(e, b.dmg); burst(b.x, b.y, '#ffe066', 4, 120);
+          let dmg = b.dmg;
+          if (e.type === 'cancer') { // plain shots at the open mouth fly on until they reach the core
+            const core = cancerCore(e), targeted = b.kind === 'opus' || b.kind === 'vortex' || b.homing;
+            if (!targeted && e.core !== 'closed' && Math.abs(b.y - core.y) < core.r + b.r && b.x < core.x - core.r - b.r) continue;
+            dmg = cancerDamage(e, b);
+          }
+          damageEnemy(e, dmg); burst(b.x, b.y, dmg > b.dmg ? '#ffffff' : '#ffe066', dmg > b.dmg ? 10 : 4, 120);
           if (b.pierce) continue;
           if (b.pierceLeft > 0) { b.pierceLeft--; continue; }
           b.dead = true; break;
         }
+      }
+      if (b.dead) continue;
+      for (const eb of G.ebullets) if (eb.hp > 0 && !eb.dead && dist2(b.x, b.y, eb.x, eb.y) < (eb.r + b.r) ** 2) { // metastatic cells can be shot down
+        eb.hp -= b.dmg; burst(b.x, b.y, '#ff7ad9', 4, 120);
+        if (eb.hp <= 0) { eb.dead = true; burst(eb.x, eb.y, '#ff4d7d', 16, 200); Sound.play('explode'); addText(eb.x, eb.y, 'METASTASIS STOPPED +' + addScore(150), '#ffe066'); }
+        if (!b.pierce) { b.dead = true; break; }
       }
       if (b.dead) continue;
       const s = solidAt(b.x, b.y);
@@ -839,9 +955,14 @@
       for (const h of G.hazards) if (h.kind === 'mine' && !h.dead && dist2(b.x, b.y, h.x, h.y) < (h.r + b.r) ** 2) { h.dead = true; b.dead = !b.pierce; burst(h.x, h.y, '#ff5c5c', 20, 220); Sound.play('explode'); addText(h.x, h.y, 'DEBT CLEARED +' + addScore(40), '#ffe066'); }
     }
     for (const b of G.ebullets) {
+      if (b.kind === 'meta') { b.vy0 += clamp(p.y - b.y, -1, 1) * 140 * wdt; b.vy = b.vy0 + Math.sin(b.t * 9 + b.wob) * 260; } // weaves and drifts toward Kaiko
       b.t += wdt; b.x += b.vx * wdt; b.y += b.vy * wdt;
       if (b.x < -20 || b.x > W + 60 || b.y < -20 || b.y > H + 20) b.dead = true;
       if (!b.dead && solidAt(b.x, b.y)) { b.dead = true; burst(b.x, b.y, '#9aa3ad', 3, 80); continue; }
+      if (!b.dead && b.kind === 'meta' && b.x < W * 0.36) { // it got past you: a tumour takes root behind Kaiko
+        b.dead = true; const sd = spawnEnemy('seed', { x: clamp(b.x, 60, W * 0.36), y: clamp(b.y, 50, H - 50) }); sd.shootT = 1.2;
+        burst(b.x, b.y, '#ff4d7d', 20, 220); addText(b.x, b.y - 30, 'METASTASIS!', '#ff6b6b', true); Sound.play('hurt'); continue;
+      }
       if (!b.dead && hitRect(b, p)) { b.dead = true; if (p.shield > 0) burst(b.x, b.y, '#ffe066', 5, 100); else hurtPlayer(b.dmg * (G.mods.enemyDmg[b.src] || 1)); }
     }
     // conformity scan beams: telegraph, then sweep left draining tokens
@@ -871,6 +992,20 @@
       if (hitRect(k, p)) { k.dead = true; applyPickup(k.kind); }
     }
     // pitch wave
+    if (G.therapy) { // TAILORED THERAPY: lock on, then zap every target at once
+      const th = G.therapy; th.t += dt;
+      if (!th.zapped && th.t >= THERAPY_ZAP) {
+        th.zapped = true; shake = Math.max(shake, 0.35); flash = Math.max(flash, 0.2); Sound.play('bigExplode');
+        for (const e of th.targets) {
+          const crate = e.wx !== undefined, x = crate ? e.wx - G.scrollX : e.x;
+          if (e.dead) continue;
+          th.bolts.push({ x, y: e.y, hue: rand(0, 360) });
+          if (crate) damageBlock(e, 15); else damageEnemy(e, e.d.boss ? 25 : 15, true);
+          for (let k = 0; k < 4; k++) burst(x, e.y, `hsl(${k * 90 + rand(0, 60)}, 100%, 65%)`, 8, 260);
+        }
+      }
+      if (th.t > THERAPY_TIME) G.therapy = null;
+    }
     if (G.wave) {
       const wv = G.wave; wv.t += dt;
       const r = waveRadius(wv), r2 = r * r;
@@ -988,6 +1123,38 @@
     art.rows.forEach((row, j) => { for (let i = 0; i < row.length; i++) if (row[i] !== '.') { ctx.fillStyle = art.pal[row[i]]; ctx.fillRect(i * px, j * px, px + 0.5, px + 0.5); } });
     ctx.restore();
   }
+  function drawTherapy() {
+    const th = G.therapy;
+    if (!th) return;
+    const p = G.player, t = th.t;
+    ctx.save();
+    if (!th.zapped) { // reticles spin in and tighten onto each target
+      const k = t / THERAPY_ZAP, r = 60 - 40 * k * k;
+      for (const e of th.targets) {
+        const x = e.wx !== undefined ? e.wx - G.scrollX : e.x;
+        ctx.save(); ctx.translate(x, e.y); ctx.rotate((1 - k) * 3); ctx.strokeStyle = `hsl(${(elapsed * 500 + x) % 360}, 100%, 65%)`; ctx.lineWidth = 3; ctx.globalAlpha = 0.4 + 0.6 * k;
+        for (let q = 0; q < 4; q++) { ctx.rotate(Math.PI / 2); ctx.beginPath(); ctx.moveTo(r, -r * 0.45); ctx.lineTo(r, -r); ctx.lineTo(r * 0.45, -r); ctx.stroke(); }
+        ctx.restore();
+      }
+    } else { // rainbow lightning to every target, then a double-helix ring spreading out
+      const k = (t - THERAPY_ZAP) / (THERAPY_TIME - THERAPY_ZAP), fade = 1 - k;
+      for (const bo of th.bolts) {
+        ctx.globalAlpha = fade; ctx.strokeStyle = `hsl(${(bo.hue + elapsed * 900) % 360}, 100%, 70%)`; ctx.lineWidth = 4 * fade + 1; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 14;
+        ctx.beginPath(); ctx.moveTo(p.x + p.w * 0.4, p.y);
+        for (let i = 1; i <= 8; i++) { const f = i / 8; ctx.lineTo(lerp(p.x + p.w * 0.4, bo.x, f) + (i < 8 ? rand(-14, 14) : 0), lerp(p.y, bo.y, f) + (i < 8 ? rand(-14, 14) : 0)); }
+        ctx.stroke();
+      }
+      ctx.shadowBlur = 0;
+      const R = 40 + (1 - (1 - k) ** 2) * 900;
+      for (const [sgn, col] of [[1, '#ff5ca8'], [-1, '#4fd1ff']]) {
+        ctx.globalAlpha = 0.8 * fade; ctx.strokeStyle = col; ctx.lineWidth = 5;
+        ctx.beginPath();
+        for (let a = 0; a <= 6.3; a += 0.05) { const rr = R + sgn * Math.sin(a * 10 + t * 12) * 14; const x = th.x + Math.cos(a) * rr, y = th.y + Math.sin(a) * rr; a === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); }
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
   function drawHelix() {
     const pts = G.helix;
     if (pts.length < 2) return;
@@ -1011,15 +1178,50 @@
         ctx.save(); ctx.globalAlpha = Math.floor(e.t * 6) % 2 === 0 ? 0.55 : 0.2; ctx.fillStyle = '#ff2020';
         ctx.beginPath(); ctx.arc(e.x + e.w * 0.02, e.y - e.h * 0.4, e.stage === 3 ? 36 : 26, 0, 6.283); ctx.fill(); ctx.restore();
       }
+      if (e.type === 'cancer') drawTentacles(e);
       ctx.save();
       if (e.flash > 0) ctx.filter = 'brightness(3)';
-      drawSprite(e.d.sprite, e.x, e.y + bob, e.w, e.h, false, e.d.move === 'chase' ? Math.sin(e.t * 4) * 0.08 : 0);
+      const pulse = e.type === 'cancer' ? 1 + Math.sin(e.t * 2.5) * 0.02 : 1;
+      drawSprite(e.d.sprite, e.x, e.y + bob, e.w * pulse, e.h * pulse, !!e.d.flip, e.d.move === 'chase' || e.d.move === 'cell' ? Math.sin(e.t * 4) * 0.08 : 0);
       ctx.restore();
       if (!e.d.boss && e.hp < e.maxHp) {
         ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(e.x - 22, e.y - e.h / 2 - 8, 44, 5);
         ctx.fillStyle = '#ff5c5c'; ctx.fillRect(e.x - 22, e.y - e.h / 2 - 8, 44 * e.hp / e.maxHp, 5);
       }
     }
+  }
+  function drawTentacles(b) {
+    for (const t of b.tents || []) {
+      ctx.save(); ctx.lineCap = 'round';
+      ctx.strokeStyle = '#4a1740'; ctx.lineWidth = 22; ctx.beginPath(); ctx.moveTo(b.x - 40, b.y); ctx.quadraticCurveTo(t.x + 40, b.y, t.x, t.y); ctx.stroke();
+      ctx.strokeStyle = '#8a2a6a'; ctx.lineWidth = 12; ctx.beginPath(); ctx.moveTo(b.x - 40, b.y); ctx.quadraticCurveTo(t.x + 40, b.y, t.x, t.y); ctx.stroke();
+      ctx.fillStyle = '#ff3b6b'; ctx.beginPath(); ctx.arc(t.x, t.y, 15, 0, 6.283); ctx.fill();
+      ctx.fillStyle = '#ffd166'; ctx.beginPath(); ctx.arc(t.x, t.y, 6, 0, 6.283); ctx.fill();
+      ctx.restore();
+    }
+  }
+  function drawCore(b) { // closed: dark lid over the mouth; tell: white flash; open: bright glow
+    const c = cancerCore(b);
+    ctx.save();
+    if (b.core === 'closed') { ctx.globalAlpha = 0.6; ctx.fillStyle = '#5a0f2a'; ctx.beginPath(); ctx.arc(c.x, c.y, c.r * 0.95, 0, 6.283); ctx.fill(); }
+    else if (b.core === 'tell') { ctx.globalAlpha = Math.floor(elapsed * 20) % 2 ? 0.9 : 0.3; ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(c.x, c.y, c.r * 1.1, 0, 6.283); ctx.fill(); }
+    else {
+      const g = ctx.createRadialGradient(c.x, c.y, c.r * 0.2, c.x, c.y, c.r * 1.9);
+      g.addColorStop(0, 'rgba(255,250,200,0.9)'); g.addColorStop(0.5, 'rgba(255,170,60,0.45)'); g.addColorStop(1, 'rgba(255,60,60,0)');
+      ctx.globalAlpha = 0.7 + 0.3 * Math.sin(elapsed * 14); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(c.x, c.y, c.r * 1.9, 0, 6.283); ctx.fill();
+    }
+    ctx.restore();
+  }
+  function drawCancerLights() { // drawn above the fog: the core state and tentacle tips must stay readable
+    const b = G.boss; if (!b || b.type !== 'cancer') return;
+    drawCore(b);
+    for (const t of b.tents || []) { ctx.fillStyle = '#ff3b6b'; ctx.beginPath(); ctx.arc(t.x, t.y, 15, 0, 6.283); ctx.fill(); ctx.fillStyle = '#ffd166'; ctx.beginPath(); ctx.arc(t.x, t.y, 6, 0, 6.283); ctx.fill(); }
+  }
+  function drawVignette() { // the final fight closes in from the edges
+    const b = G.boss; if (!b || b.type !== 'cancer') return;
+    const g = ctx.createRadialGradient(W / 2, H / 2, H * 0.45, W / 2, H / 2, H * 0.95);
+    g.addColorStop(0, 'rgba(120,0,30,0)'); g.addColorStop(1, `rgba(120,0,30,${0.35 + 0.2 * b.stage})`);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
   }
   function drawBullets() {
     for (const b of G.bullets) {
@@ -1053,6 +1255,8 @@
         case 'binary': text(Math.floor(b.t * 8) % 2 ? '1' : '0', 0, 0, 12, '#6ec6ff', 'center'); break;
         case 'alarm': ctx.fillStyle = Math.floor(b.t * 10) % 2 ? '#ff3b3b' : '#ffb3b3'; ctx.beginPath(); ctx.arc(0, 0, b.r, 0, 6.283); ctx.fill(); break;
         case 'stamp': ctx.rotate(b.t * 4); ctx.fillStyle = '#c8102e'; ctx.beginPath(); ctx.arc(0, 0, b.r, 0, 6.283); ctx.fill(); ctx.fillStyle = '#ffd700'; ctx.fillRect(-4, -4, 8, 8); break;
+        case 'meta': ctx.rotate(Math.atan2(b.vy, b.vx) + Math.PI + Math.sin(b.t * 6) * 0.1); drawSprite('cancer_cell', 0, 0, 90, 90 * spriteH('cancer_cell', 1), false, 0); break;
+        case 'spore': ctx.fillStyle = 'rgba(255,80,120,0.5)'; ctx.beginPath(); ctx.arc(0, 0, b.r + 4, 0, 6.283); ctx.fill(); ctx.fillStyle = '#ffd166'; ctx.beginPath(); ctx.arc(0, 0, b.r - 2, 0, 6.283); ctx.fill(); break;
         default: ctx.fillStyle = '#fff'; ctx.fillRect(-4, -4, 8, 8);
       }
       ctx.restore();
@@ -1061,7 +1265,11 @@
   function drawHazards() {
     for (const h of G.hazards) {
       ctx.save(); ctx.translate(h.x, h.y);
-      if (h.kind === 'mine') {
+      if (h.kind === 'mine' && IMG.tech_debt.naturalWidth) {
+        const s = h.r * 2.6; // the art's glow and spikes reach past the hitbox
+        ctx.rotate(h.t * 0.6); ctx.drawImage(IMG.tech_debt, -s / 2, -s / 2, s, s);
+        ctx.rotate(-h.t * 0.6); text('TECH DEBT', 0, h.r + 16, 7, '#ff9b9b', 'center');
+      } else if (h.kind === 'mine') {
         ctx.rotate(h.t);
         ctx.fillStyle = '#2b2f3a'; ctx.beginPath(); ctx.arc(0, 0, h.r, 0, 6.283); ctx.fill();
         ctx.fillStyle = '#6b7280'; for (let i = 0; i < 8; i++) { const a = i * 0.785; ctx.fillRect(Math.cos(a) * h.r - 3, Math.sin(a) * h.r - 3, 7, 7); }
@@ -1187,7 +1395,8 @@
   const darkCv = document.createElement('canvas'); darkCv.width = W; darkCv.height = H;
   const dctx = darkCv.getContext('2d');
   function drawDarkness() { // the abyss closes in, the sub's headlight cuts through
-    const a = clamp((G.depth - 3000) / 800, 0, 1) * (G.boss ? 0.35 : 0.72);
+    let a = clamp((G.depth - 3000) / 800, 0, 1) * (G.boss ? 0.35 : 0.72);
+    if (G.boss && G.boss.type === 'cancer' && G.boss.stage >= 2) a = 0.6; // resistance: the fog closes in
     if (a < 0.01) return;
     const p = G.player;
     dctx.globalCompositeOperation = 'source-over'; dctx.clearRect(0, 0, W, H);
@@ -1202,6 +1411,17 @@
     for (const k of G.pickups) {
       const def = POWERUPS[k.kind];
       ctx.save(); ctx.translate(k.x, k.y);
+      const img = IMG[`pickup_${k.kind}`];
+      if (img && img.naturalWidth) {
+        // fit the sprite into a 48 px box, bob it and pulse a glow in the pickup colour behind it
+        const s = 48 / Math.max(img.naturalWidth, img.naturalHeight), w = img.naturalWidth * s, h = img.naturalHeight * s;
+        ctx.translate(0, Math.sin(k.t * 4) * 3);
+        ctx.globalAlpha = 0.25 + 0.15 * Math.sin(k.t * 8); ctx.fillStyle = def.color;
+        ctx.beginPath(); ctx.arc(0, 0, 26, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
+        ctx.drawImage(img, -w / 2, -h / 2, w, h);
+        text(def.label, 0, 30, 7, def.color, 'center');
+        ctx.restore(); continue;
+      }
       ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-16, -16, 32, 32);
       ctx.fillStyle = def.color; ctx.fillRect(-13, -13, 26, 26);
       ctx.fillStyle = '#fff'; ctx.globalAlpha = 0.5 + 0.5 * Math.sin(k.t * 8); ctx.fillRect(-13, -13, 26, 4); ctx.globalAlpha = 1;
@@ -1278,6 +1498,12 @@
       ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(W / 2 - 202, H - 62, 404, 20);
       ctx.fillStyle = '#ff3b3b'; ctx.fillRect(W / 2 - 200, H - 60, 400 * Math.max(0, b.hp) / b.maxHp, 16);
       text(`${b.d.name}`, W / 2, H - 52, 9, '#fff', 'center');
+      if (b.type === 'cancer') {
+        const st = ['GROWTH', 'METASTASIS', 'RESISTANCE'][b.stage];
+        const cs = b.core === 'open' ? ['CORE OPEN: FIRE!', '#5cff5c'] : b.core === 'tell' ? ['CORE OPENING: x3 DAMAGE', '#ffffff'] : ['CORE CLOSED: 20% DAMAGE', '#ff8080'];
+        text(`${st}   ·   ${cs[0]}`, W / 2, H - 76, 8, cs[1], 'center');
+        if (b.stage === 2 && G.time - b.lastHit > 2) text('REGROWING', W / 2 + 230, H - 52, 8, '#ff5c5c', 'left');
+      }
       if (b.type === 'mdr') { // audit checklist and current damage guard
         ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(W / 2 - 360, 50, 720, 40);
         MDR_CHECKS.forEach((n, i) => { const done = b.checks[i]; text(`[${done ? 'X' : ' '}] ${n}`, W / 2 + (i - 1) * 230, 62, 7, done ? '#5cff5c' : '#cfe3ff', 'center'); });
@@ -1417,7 +1643,7 @@
     text('helping a million clinicians treat millions of patients.', W / 2, H / 2 - 4, 10, '#dfe8ff', 'center');
     const clinicians = Math.round(1000000 * (1 - (1 - clamp(t / 2.5, 0, 1)) ** 3)); // counts up, easing into the million
     text(`${clinicians.toLocaleString('en-US')} CLINICIANS ON BOARD`, W / 2, H / 2 + 28, 14, '#ffe066', 'center');
-    text('SCARLET signed off. CE mark obtained.', W / 2, H / 2 + 52, 8, '#9fc3ff', 'center');
+    text('CE mark obtained. Cancer in remission.', W / 2, H / 2 + 52, 8, '#9fc3ff', 'center');
     drawRunStats(H / 2 + 80);
     drawEndPrompt(H / 2 + 140, 'PLAY AGAIN');
   }
@@ -1445,12 +1671,15 @@
     drawBeams();
     drawEnemies();
     drawHelix();
+    drawTherapy();
     drawDarkness();
+    drawCancerLights();
     drawVents();
     drawPickups();
     if (state !== 'gameover') drawPlayer();
     drawBullets();
     drawEffects();
+    drawVignette();
     ctx.restore();
     if (G.letterbox > 0) { const k = Math.min(1, G.letterbox * 2, (LETTERBOX_TIME - G.letterbox) * 4), bh = 48 * k; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, bh); ctx.fillRect(0, H - bh, W, bh); } // boss entrance
     if (flash > 0) { ctx.fillStyle = `rgba(255,80,80,${flash * 0.5})`; ctx.fillRect(0, 0, W, H); }

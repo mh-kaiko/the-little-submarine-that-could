@@ -4,6 +4,9 @@
   pixels *inside* a sprite are kept.
 - Splits the enemy sheets into individual sprites by looking for empty columns.
 """
+import glob
+import os
+
 from PIL import Image
 import numpy as np
 from scipy import ndimage
@@ -72,6 +75,20 @@ def split_sheet(name, labels, tol, label_top):
         print(f'{label:12s} {sprite.shape[1]}x{sprite.shape[0]}')
 
 
+def icon(path, tol=24, size=96):
+    """Square icon (pickups, mines): crop, fit the longest side to `size` px. Keys out the background only if it is not already transparent."""
+    name = os.path.splitext(os.path.basename(path))[0]
+    arr = np.array(Image.open(path).convert('RGBA'))
+    # art that already has a transparent background keeps it; keying would eat the black outlines
+    if not (arr[:, :, 3] == 0).any():
+        arr = transparentize(name, tol)
+    im = Image.fromarray(crop_to_content(arr))
+    s = size / max(im.width, im.height)
+    im = im.resize((max(1, round(im.width * s)), max(1, round(im.height * s))), Image.LANCZOS)
+    im.save(f'{OUT}/{name}.png')
+    print(f'{name:14s} {im.width}x{im.height}')
+
+
 def portrait(name, tol=24, width=256):
     """Pilot portrait: key out the flat background, crop, shrink for the web."""
     arr = crop_to_content(transparentize(name, tol), pad=0)
@@ -82,7 +99,20 @@ def portrait(name, tol=24, width=256):
     print(f'{name:12s} {width}x{h}')
 
 
+def cutout(name, out, width, min_alpha=1):
+    """Art that already has a transparent background: crop to content and shrink for the web."""
+    arr = np.array(Image.open(f'{RAW}/{name}.png').convert('RGBA'))
+    arr[:, :, 3] = np.where(arr[:, :, 3] >= min_alpha, arr[:, :, 3], 0)
+    arr = crop_to_content(arr, pad=0)
+    im = Image.fromarray(arr)
+    h = round(im.height * width / im.width)
+    im.resize((width, h), Image.LANCZOS).save(f'{OUT}/{out}.png')
+    print(f'{out:12s} {width}x{h}')
+
+
 if __name__ == '__main__':
+    cutout('final_boss', 'cancer', 640)
+    cutout('final_boss_projectile', 'cancer_cell', 320, min_alpha=40)
     portrait('robert')
     portrait('thomas')
     portrait('veerle')
@@ -93,3 +123,7 @@ if __name__ == '__main__':
     print(f'kaiko_dome   {sub.shape[1]}x{sub.shape[0]}')
     split_sheet('enemies1', ['kaiko_mini', 'datadesk', 'legal', 'hospital', 'research', 'it'], tol=30, label_top=540)
     split_sheet('enemies2', ['regulatory', 'gdpr', 'mdr', 'scarlet'], tol=30, label_top=590)
+    # assets/raw/pickup_<kind>.png, where <kind> is a POWERUPS key in src/game.js (e.g. pickup_tokens.png)
+    for path in sorted(glob.glob(f'{RAW}/pickup_*.png')):
+        icon(path)
+    icon(f'{RAW}/tech_debt.png', size=128)
