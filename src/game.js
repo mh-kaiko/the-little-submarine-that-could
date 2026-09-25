@@ -116,6 +116,7 @@
   const WAVE_TIME = 2.2, WAVE_REACH = 1100; // FUNDRAISE: seconds for the pitch wave to cross the screen
   const SLOWMO_TIME = 0.7, SLOWMO_SCALE = 0.25; // boss kill: real seconds of slow motion and the speed during it
   const LETTERBOX_TIME = 2.5;                   // boss entrance: seconds of cinematic bars
+  const PM_SPEED = 1.8; // PERSONALIZED MEDICINE: the whole world runs this much faster, always
   const DEEP_SCALE = 0.3;   // DEEP THOUGHT: world speed while active; Kaiko keeps full speed
   const TOPIC_FIRE = 0.66;  // STAY ON TOPIC: fire cooldown multiplier (about 1.5x the fire rate)
   const HOMING_TURN = 12.6; // rad/s a homing shot can turn (about 720 degrees per second)
@@ -203,7 +204,7 @@
       fireCd: 0, invuln: 0, shield: 0, opus: 0, vortex: 0, deep: 0, onTopic: 0, specialCd: 0, tilt: 0, drain: 0,
     };
     G.bullets = []; G.ebullets = []; G.enemies = []; G.hazards = []; G.pickups = []; G.beams = [];
-    G.particles = []; G.texts = []; G.bubbles = []; G.drain = []; G.bills = []; G.fly = [];
+    G.particles = []; G.texts = []; G.bubbles = []; G.drain = []; G.bills = []; G.fly = []; G.helix = []; G.bases = []; G.helixN = 0;
     G.hud = { fundGlow: 0, tokGlow: 0, tokEmpty: 0, chunk: null }; G.ripple = null; G.slowmo = 0; G.focus = null; G.letterbox = 0;
     G.depth = START_DEPTH; G.score = 0; G.time = 0; G.kills = 0;
     G.spawnT = 1.5; G.hazardT = 6; G.pickupT = 8; G.zoneIdx = -1; G.banner = null;
@@ -705,7 +706,7 @@
     const p = G.player, c = G.char;
     G.time += dt;
     if (G.winAt && G.time >= G.winAt) { endRun(true); return; }
-    const wdt = p.deep > 0 ? dt * DEEP_SCALE : dt; // world time; player systems keep dt
+    const wdt = (p.deep > 0 ? dt * DEEP_SCALE : dt) * (c.op ? PM_SPEED : 1); // world time; player systems keep dt
 
     // depth & zones
     if (!G.boss) G.depth = Math.min(MAX_DEPTH, G.depth + DESCENT_RATE * wdt);
@@ -719,7 +720,17 @@
     }
     if (zone.boss && !G.boss && !G.bossDefeated[zone.boss]) spawnBoss(zone.boss);
     const difficulty = clamp(G.depth / MAX_DEPTH, 0, 1);
-    Sound.setTempoDepth(difficulty);
+    Sound.setTempoDepth(c.op ? 1 : difficulty);
+    // PERSONALIZED MEDICINE leaves a DNA double helix in the water behind it, shedding loose RNA bases
+    if (c.op) {
+      const tx = p.x - p.w * 0.45 + G.scrollX, ty = p.y + 4;
+      G.helix.push({ wx: tx, y: ty, t: 0, ph: G.helixN * 0.32, rung: G.helixN % 4 === 0 }); G.helixN++;
+      if (Math.random() < dt * 14) G.bases.push({ wx: tx, y: ty + rand(-12, 12), vy: rand(-50, 50), t: 0, ch: pick(['A', 'C', 'G', 'U']), col: pick(['#ff5ca8', '#4fd1ff', '#ffe066', '#7dffb3']) });
+    }
+    for (const h of G.helix) h.t += dt;
+    G.helix = G.helix.filter(h => h.t < 1.4);
+    for (const b of G.bases) { b.t += dt; b.y += b.vy * dt; }
+    G.bases = G.bases.filter(b => b.t < 1);
     Sound.setTrack(!G.boss ? 'level' : G.boss.type === FINAL_BOSS ? 'final' : 'boss');
 
     // player movement
@@ -972,6 +983,22 @@
     ctx.translate(g.x * p.w - rw / 2, g.y * p.w - rh / 2 + (g.bob ? Math.sin(elapsed * 4) * 3 : 0));
     art.rows.forEach((row, j) => { for (let i = 0; i < row.length; i++) if (row[i] !== '.') { ctx.fillStyle = art.pal[row[i]]; ctx.fillRect(i * px, j * px, px + 0.5, px + 0.5); } });
     ctx.restore();
+  }
+  function drawHelix() {
+    const pts = G.helix;
+    if (pts.length < 2) return;
+    const at = (h, sgn) => [h.wx - G.scrollX, h.y + sgn * Math.sin(h.ph) * 13];
+    ctx.save(); ctx.lineCap = 'round';
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i]; ctx.globalAlpha = clamp(1 - b.t / 1.4, 0, 1);
+      for (const [sgn, col] of [[1, '#ff5ca8'], [-1, '#4fd1ff']]) {
+        const [x0, y0] = at(a, sgn), [x1, y1] = at(b, sgn);
+        ctx.strokeStyle = col; ctx.lineWidth = 3 + Math.cos(b.ph) * sgn * 1.5; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      }
+      if (b.rung) { const [x0, y0] = at(b, 1), [x1, y1] = at(b, -1); ctx.strokeStyle = '#e8eef2'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); }
+    }
+    ctx.restore();
+    for (const b of G.bases) { ctx.save(); ctx.globalAlpha = 1 - b.t; text(b.ch, b.wx - G.scrollX, b.y, 9, b.col, 'center'); ctx.restore(); }
   }
   function drawEnemies() {
     for (const e of G.enemies) {
@@ -1392,11 +1419,17 @@
     ctx.save();
     if (G.slowmo > 0 && G.focus) { const z = 1 + 0.12 * Math.sin(Math.PI * G.slowmo / SLOWMO_TIME); ctx.translate(G.focus.x, G.focus.y); ctx.scale(z, z); ctx.translate(-G.focus.x, -G.focus.y); } // push in on the boss kill
     drawBackground(clamp(G.depth / MAX_DEPTH, 0, 1), G.scrollX, 1);
+    if (G.char.op && state !== 'title') { // speed lines: PERSONALIZED MEDICINE runs the world fast
+      ctx.save(); ctx.fillStyle = '#ffffff';
+      for (let i = 0; i < 22; i++) { const len = 60 + (i * 37) % 110, x = W + 100 - ((elapsed * 1500 + i * 211) % (W + 300)), y = 50 + (i * 97) % (H - 70); ctx.globalAlpha = 0.12 + (i % 4) * 0.05; ctx.fillRect(x, y, len, 2); }
+      ctx.restore();
+    }
     drawBubbles();
     drawTerrain();
     drawHazards();
     drawBeams();
     drawEnemies();
+    drawHelix();
     drawDarkness();
     drawVents();
     drawPickups();
