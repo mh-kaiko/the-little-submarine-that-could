@@ -197,7 +197,7 @@
   const MDR_THRESHOLDS = [0.7, 0.4, 0.15];
 
   // ------------------------------------------------------------ state
-  let TURBO = 1, GOD = false; // debug: ?turbo=n fast-forwards, ?god=1 makes the pilot unhurtable
+  let TURBO = 1, GOD = false, AUTOFIRE = false; // debug: ?turbo=n fast-forwards, ?god=1 makes the pilot unhurtable
   let START_DEPTH = 0; // debug: ?depth=N starts every run (select, R retry, autostart) at N metres
   let state = 'title';
   let selected = 'thomas';
@@ -239,6 +239,9 @@
     onKey(e.code);
   });
   window.addEventListener('keyup', e => { keys[e.code] = false; });
+  const loseFocus = () => { const fire = keys.Space && AUTOFIRE; keys = {}; if (fire) keys.Space = true; if (state === 'play') state = 'paused'; };
+  window.addEventListener('blur', loseFocus);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) loseFocus(); else lastTime = performance.now(); });
   canvas.addEventListener('pointerdown', e => {
     Sound.init(); Sound.resume();
     const r = canvas.getBoundingClientRect();
@@ -250,7 +253,8 @@
       const i = Math.floor((y - RISK_Y0 + 18) / RISK_ROW);
       if (i >= 0 && i < RISKS.length && x > 60 && x < W - 60) { riskCursor = i; toggleRisk(i); }
       else if (y >= 470) startGame();
-    } else if (state === 'gameover' || state === 'win') toTitle();
+    } else if (state === 'paused') state = 'play';
+    else if (state === 'gameover' || state === 'win') toTitle();
   });
   function onKey(code) {
     if (code === 'KeyM') { Sound.toggleMute(); return; }
@@ -960,7 +964,8 @@
       if (b.x < -20 || b.x > W + 60 || b.y < -20 || b.y > H + 20) b.dead = true;
       if (!b.dead && solidAt(b.x, b.y)) { b.dead = true; burst(b.x, b.y, '#9aa3ad', 3, 80); continue; }
       if (!b.dead && b.kind === 'meta' && b.x < W * 0.36) { // it got past you: a tumour takes root behind Kaiko
-        b.dead = true; const sd = spawnEnemy('seed', { x: clamp(b.x, 60, W * 0.36), y: clamp(b.y, 50, H - 50) }); sd.shootT = 1.2;
+        b.dead = true; let sy = clamp(b.y, 50, H - 50); if (Math.abs(sy - p.y) < 90 && Math.abs(b.x - p.x) < 120) sy = clamp(p.y + (p.y < H / 2 ? 110 : -110), 50, H - 50);
+        const sd = spawnEnemy('seed', { x: clamp(b.x, 60, W * 0.36), y: sy }); sd.shootT = 1.2;
         burst(b.x, b.y, '#ff4d7d', 20, 220); addText(b.x, b.y - 30, 'METASTASIS!', '#ff6b6b', true); Sound.play('hurt'); continue;
       }
       if (!b.dead && hitRect(b, p)) { b.dead = true; if (p.shield > 0) burst(b.x, b.y, '#ffe066', 5, 100); else hurtPlayer(b.dmg * (G.mods.enemyDmg[b.src] || 1)); }
@@ -1477,7 +1482,8 @@
     }
     // special
     const sp = c.special, ready = p.specialCd <= 0 && p.tokens >= sp.cost;
-    bar(508, 22, 200, 12, p.specialCd > 0 ? 1 - p.specialCd / sp.cooldown : 1, ready ? c.color : '#777', `SHIFT: ${sp.name}`, ready ? 'READY' : p.specialCd > 0 ? `${Math.ceil(p.specialCd)}s` : `${sp.cost} TOK`);
+    bar(508, 22, 250, 12, p.specialCd > 0 ? 1 - p.specialCd / sp.cooldown : 1, ready ? c.color : '#777', `SHIFT: ${sp.name}`, ready ? 'READY' : p.specialCd > 0 ? `${Math.ceil(p.specialCd)}s` : `${sp.cost} TOK`);
+    if (Sound.isMuted()) text('MUTED (M)', 770, 12, 7, '#9fc3ff', 'left');
     text(`SCORE ${G.score}`, W - 16, 14, 10, '#ffe066', 'right');
     text(`DEPTH ${Math.floor(G.depth)}m`, W - 16, 32, 10, '#cfe3ff', 'right');
     // active buffs
@@ -1510,6 +1516,14 @@
         const g = mdrGuard(b);
         text(g >= 1 ? 'DISTRACTED BY PAPERWORK: FULL DAMAGE' : g <= 0.5 ? 'REVIEWING: HALF DAMAGE' : 'GUARDED: 70% DAMAGE', W / 2, 80, 7, g >= 1 ? '#5cff5c' : g <= 0.5 ? '#ff5c5c' : '#ffe066', 'center');
       }
+    }
+    // first seconds from the surface: the controls, right where the player is looking
+    if (G.time < 9 && START_DEPTH === 0 && !G.boss) {
+      const a = clamp(Math.min(G.time * 2, (9 - G.time)), 0, 1);
+      ctx.save(); ctx.globalAlpha = a;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(W / 2 - 330, H - 40, 660, 30);
+      text('MOVE: ARROWS / WASD     FIRE: SPACE     SPECIAL: SHIFT     PAUSE: P', W / 2, H - 25, 8, '#ffffff', 'center');
+      ctx.restore();
     }
     // banner
     if (G.banner) {
@@ -1609,7 +1623,7 @@
     bar(W / 2 - 160, H / 2 + 14, 320, 12, 0, '#ff5c5c', 'FUNDING', `0/${G.player.maxFunding}`);
     text('before you could solve healthcare.', W / 2, H / 2 + 44, 10, '#ffb3b3', 'center');
     drawRunStats(H / 2 + 72);
-    drawEndPrompt(H / 2 + 135, 'RETRY');
+    drawEndPrompt(H / 2 + 148, 'RETRY');
   }
   function drawConfetti() {
     const t = elapsed - G.endAt;
@@ -1644,8 +1658,8 @@
     const clinicians = Math.round(1000000 * (1 - (1 - clamp(t / 2.5, 0, 1)) ** 3)); // counts up, easing into the million
     text(`${clinicians.toLocaleString('en-US')} CLINICIANS ON BOARD`, W / 2, H / 2 + 28, 14, '#ffe066', 'center');
     text('CE mark obtained. Cancer in remission.', W / 2, H / 2 + 52, 8, '#9fc3ff', 'center');
-    drawRunStats(H / 2 + 80);
-    drawEndPrompt(H / 2 + 140, 'PLAY AGAIN');
+    drawRunStats(H / 2 + 78);
+    drawEndPrompt(H / 2 + 152, 'PLAY AGAIN');
   }
   function drawEnd(win) {
     ctx.fillStyle = win ? 'rgba(0,40,20,0.75)' : 'rgba(40,0,0,0.75)'; ctx.fillRect(0, 0, W, H);
@@ -1685,7 +1699,7 @@
     if (flash > 0) { ctx.fillStyle = `rgba(255,80,80,${flash * 0.5})`; ctx.fillRect(0, 0, W, H); }
     if (G.player.deep > 0 && (state === 'play' || state === 'paused')) { ctx.fillStyle = 'rgba(70,130,255,0.14)'; ctx.fillRect(0, 0, W, H); }
     drawHUD();
-    if (state === 'paused') { ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, W, H); text('PAUSED', W / 2, H / 2 - 10, 24, '#fff', 'center'); text('Press P to resume', W / 2, H / 2 + 25, 10, '#cfe3ff', 'center'); }
+    if (state === 'paused') { ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, W, H); text('PAUSED', W / 2, H / 2 - 10, 24, '#fff', 'center'); text('P, Esc, Enter or click to resume   ·   M: mute', W / 2, H / 2 + 25, 10, '#cfe3ff', 'center'); }
     if (state === 'gameover') drawEnd(false);
     if (state === 'win') drawEnd(true);
     ctx.restore();
@@ -1712,7 +1726,7 @@
     if (Q.get('autostart')) {
       selected = CHARACTERS[Q.get('pilot')] ? Q.get('pilot') : selected;
       startGame();
-      if (Q.get('autofire')) keys.Space = true;
+      if (Q.get('autofire')) { AUTOFIRE = true; keys.Space = true; }
     }
     requestAnimationFrame(frame);
   });

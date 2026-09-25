@@ -46,7 +46,7 @@ See [Debug / testing URL parameters](#debug--testing-url-parameters) for all opt
 | Move    | WASD or Arrow keys      |
 | Shoot   | Space (costs 3 tokens)  |
 | Special | Shift (costs tokens, has cooldown) |
-| Pause   | P or Esc                |
+| Pause   | P or Esc (also pauses when the window loses focus); P, Esc, Enter or a click resumes |
 | Mute    | M                       |
 | Choose pilot / start | Left/Right or 1/2/3, then Enter, or click |
 | Retry after a run | R (same pilot), Enter to choose a pilot |
@@ -57,7 +57,7 @@ See [Debug / testing URL parameters](#debug--testing-url-parameters) for all opt
 - **Robert (CTO)** pilots the mini scout sub. Faster, cheaper shots, thinner hull. Special **DEEP THOUGHT**: for 4 seconds the whole ocean slows to 30% while Kaiko keeps full speed.
 - **Veerle (MD)** pilots the dome sub. Balanced hull and speed. Special **STAY ON TOPIC**: for 8 seconds every shot is free, homes in on the nearest enemy and pierces through one.
 
-Run out of funding and you are the little submarine that couldn't. Beat SCARLET at 4000 m and you have solved healthcare.
+Run out of funding and you are the little submarine that couldn't. Put cancer into remission at 4000 m and you have solved healthcare.
 
 ## Corners cut (risk level)
 
