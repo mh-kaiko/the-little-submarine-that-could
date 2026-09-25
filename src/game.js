@@ -9,7 +9,7 @@
 
   // ------------------------------------------------------------ assets
   const IMG = {};
-  const SPRITES = ['kaiko_sub', 'kaiko_mini', 'datadesk', 'legal', 'hospital', 'research', 'it', 'regulatory', 'gdpr', 'mdr', 'scarlet'];
+  const SPRITES = ['kaiko_sub', 'kaiko_mini', 'robert', 'thomas', 'datadesk', 'legal', 'hospital', 'research', 'it', 'regulatory', 'gdpr', 'mdr', 'scarlet'];
   function loadAssets(done) {
     let left = SPRITES.length + 1;
     const one = () => { if (--left === 0) done(); };
@@ -36,13 +36,13 @@
   // ------------------------------------------------------------ definitions
   const CHARACTERS = {
     robert: {
-      key: 'robert', name: 'ROBERT', title: 'CEO', sprite: 'kaiko_sub', color: '#ffb300',
+      key: 'robert', name: 'ROBERT', title: 'CEO', sprite: 'kaiko_sub', portrait: 'robert', color: '#ffb300',
       width: 150, hitScale: 0.55, speed: 230, funding: 120, tokens: 100, fireRate: 0.22, tokenRegen: 11, bulletDmg: 1.2,
       blurb: ['The big Kaiko sub.', 'More funding, tougher hull,', 'a bit slower.'],
       special: { name: 'FUNDRAISE', cost: 40, cooldown: 12, desc: ['Pitch wave hits every enemy', 'on screen and converts', '40 tokens into 30 funding.'] },
     },
     thomas: {
-      key: 'thomas', name: 'THOMAS', title: 'CTO', sprite: 'kaiko_mini', color: '#4fd1ff',
+      key: 'thomas', name: 'THOMAS', title: 'CTO', sprite: 'kaiko_mini', portrait: 'thomas', color: '#4fd1ff',
       width: 110, hitScale: 0.55, speed: 310, funding: 85, tokens: 120, fireRate: 0.16, tokenRegen: 14, bulletDmg: 1,
       blurb: ['The nimble scout sub.', 'Faster, cheaper shots,', 'thinner hull.'],
       special: { name: 'HOTFIX', cost: 35, cooldown: 12, desc: ['Invincible for 5 seconds', 'and double fire rate.', 'Ship it.'] },
@@ -598,7 +598,13 @@
       const c = CHARACTERS[key], cx = i === '0' ? W / 4 : 3 * W / 4, sel = selected === key;
       ctx.fillStyle = sel ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.35)'; ctx.fillRect(cx - 200, 150, 400, 295);
       if (sel) { ctx.strokeStyle = c.color; ctx.lineWidth = 4; ctx.strokeRect(cx - 200, 150, 400, 295); }
-      drawSprite(c.sprite, cx, 225 + Math.sin(elapsed * 2 + (sel ? 0 : 1)) * 5, c.width * 1.1, spriteH(c.sprite, c.width * 1.1));
+      // pilot portrait (pixel-art headshot) on the left, their sub on the right
+      const px = cx - 110, py = 222, ps = 124;
+      ctx.fillStyle = '#0a1a4a'; ctx.fillRect(px - ps / 2, py - ps / 2, ps, ps);
+      drawSprite(c.portrait, px, py, ps, ps);
+      ctx.strokeStyle = sel ? c.color : 'rgba(255,255,255,0.25)'; ctx.lineWidth = 3; ctx.strokeRect(px - ps / 2, py - ps / 2, ps, ps);
+      const sw = c.width * 0.85;
+      drawSprite(c.sprite, cx + 75, 222 + Math.sin(elapsed * 2 + (sel ? 0 : 1)) * 5, sw, spriteH(c.sprite, sw));
       text(`${c.name} (${c.title})`, cx, 300, 13, c.color, 'center');
       c.blurb.forEach((l, j) => text(l, cx, 322 + j * 14, 8, '#dfe8ff', 'center'));
       text(`FUNDING ${c.funding}  TOKENS ${c.tokens}  SPEED ${c.speed}`, cx, 372, 7, '#9fc3ff', 'center');
