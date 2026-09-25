@@ -20,6 +20,8 @@
 
   // ------------------------------------------------------------ helpers
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  // Sprite size multiplier on top of the table values (?scale=1.3 to try 30% bigger pilots and enemies).
+  const SPRITE_SCALE = clamp(parseFloat(new URLSearchParams(location.search).get('scale')) || 1, 0.25, 3);
   const lerp = (a, b, t) => a + (b - a) * t;
   const rand = (a, b) => a + Math.random() * (b - a);
   const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
@@ -38,21 +40,21 @@
     thomas: {
       key: 'thomas', name: 'THOMAS', title: 'CEO', sprite: 'kaiko_sub', portrait: 'thomas', color: '#ffb300',
       hatch: { x: 0.53, y: 0.225, size: 0.2 }, // where the pilot pokes out: fraction of sprite w/h, head width as fraction of w
-      width: 150, hitScale: 0.55, speed: 230, funding: 120, tokens: 100, fireRate: 0.22, tokenRegen: 11, bulletDmg: 1.2,
+      width: 75, hitScale: 0.55, speed: 230, funding: 120, tokens: 100, fireRate: 0.22, tokenRegen: 11, bulletDmg: 1.2,
       blurb: ['The big Kaiko sub.', 'More funding, tougher hull,', 'a bit slower.'],
       special: { name: 'FUNDRAISE', cost: 40, cooldown: 12, desc: ['Pitch wave hits every enemy', 'on screen and converts', '40 tokens into 30 funding.'] },
     },
     robert: {
       key: 'robert', name: 'ROBERT', title: 'CTO', sprite: 'kaiko_mini', portrait: 'robert', color: '#4fd1ff',
       hatch: { x: 0.48, y: 0.36, size: 0.26 },
-      width: 110, hitScale: 0.55, speed: 310, funding: 85, tokens: 120, fireRate: 0.16, tokenRegen: 14, bulletDmg: 1,
+      width: 55, hitScale: 0.55, speed: 310, funding: 85, tokens: 120, fireRate: 0.16, tokenRegen: 14, bulletDmg: 1,
       blurb: ['The nimble scout sub.', 'Faster, cheaper shots,', 'thinner hull.'],
       special: { name: 'DEEP THOUGHT', cost: 35, cooldown: 15, duration: 4, desc: ['Slow the whole ocean to 30%', 'for 4 seconds.', 'Kaiko keeps full speed.'] },
     },
     veerle: {
       key: 'veerle', name: 'VEERLE', title: 'MD', sprite: 'kaiko_dome', portrait: 'veerle', color: '#c08cff',
       hatch: { x: 0.6, y: 0.28, size: 0.2 },
-      width: 130, hitScale: 0.55, speed: 270, funding: 100, tokens: 110, fireRate: 0.19, tokenRegen: 12, bulletDmg: 1,
+      width: 65, hitScale: 0.55, speed: 270, funding: 100, tokens: 110, fireRate: 0.19, tokenRegen: 12, bulletDmg: 1,
       blurb: ['The clinical sub.', 'Balanced hull and speed.', 'Keeps everyone on topic.'],
       special: { name: 'STAY ON TOPIC', cost: 30, cooldown: 12, duration: 8, desc: ['8 seconds of free,', 'homing, piercing shots.', 'Nobody wanders off.'] },
     },
@@ -60,15 +62,15 @@
   const PILOTS = Object.keys(CHARACTERS); // select-screen order
 
   const ENEMIES = {
-    datadesk:   { sprite: 'datadesk',   w: 72,  hp: 2,  speed: 110, move: 'sine',   amp: 45, freq: 2.0, shoot: 2.6, bullet: 'doc',    score: 100, name: 'Datadesk' },
-    it:         { sprite: 'it',         w: 72,  hp: 2,  speed: 150, move: 'zigzag', amp: 0,  freq: 0,   shoot: 0,   bullet: null,     score: 120, name: 'IT' },
-    legal:      { sprite: 'legal',      w: 78,  hp: 3,  speed: 95,  move: 'sine',   amp: 60, freq: 1.4, shoot: 2.2, bullet: 'para',   score: 150, name: 'Legal' },
-    research:   { sprite: 'research',   w: 74,  hp: 3,  speed: 120, move: 'chase',  amp: 0,  freq: 0,   shoot: 2.0, bullet: 'flask',  score: 180, name: 'Research' },
-    hospital:   { sprite: 'hospital',   w: 96,  hp: 5,  speed: 60,  move: 'hover',  amp: 30, freq: 0.8, shoot: 2.4, bullet: 'doc3',   score: 250, name: 'Dept. Hospital' },
-    regulatory: { sprite: 'regulatory', w: 100, hp: 6,  speed: 75,  move: 'sine',   amp: 70, freq: 1.0, shoot: 1.9, bullet: 'para2',  score: 300, name: 'Regulatory' },
-    gdpr:       { sprite: 'gdpr',       w: 92,  hp: 6,  speed: 85,  move: 'drift',  amp: 15, freq: 3.0, shoot: 1.6, bullet: 'binary', score: 300, name: 'GDPR' },
-    mdr:        { sprite: 'mdr',        w: 230, hp: 80, speed: 0,   move: 'boss',   amp: 0,  freq: 0,   shoot: 0,   bullet: null,     score: 3000, name: 'MDR', boss: true },
-    scarlet:    { sprite: 'scarlet',    w: 250, hp: 120, speed: 0,  move: 'boss',   amp: 0,  freq: 0,   shoot: 0,   bullet: null,     score: 6000, name: 'SCARLET', boss: true },
+    datadesk:   { sprite: 'datadesk',   w: 36,  hp: 2,  speed: 110, move: 'sine',   amp: 45, freq: 2.0, shoot: 2.6, bullet: 'doc',    score: 100, name: 'Datadesk' },
+    it:         { sprite: 'it',         w: 36,  hp: 2,  speed: 150, move: 'zigzag', amp: 0,  freq: 0,   shoot: 0,   bullet: null,     score: 120, name: 'IT' },
+    legal:      { sprite: 'legal',      w: 39,  hp: 3,  speed: 95,  move: 'sine',   amp: 60, freq: 1.4, shoot: 2.2, bullet: 'para',   score: 150, name: 'Legal' },
+    research:   { sprite: 'research',   w: 37,  hp: 3,  speed: 120, move: 'chase',  amp: 0,  freq: 0,   shoot: 2.0, bullet: 'flask',  score: 180, name: 'Research' },
+    hospital:   { sprite: 'hospital',   w: 48,  hp: 5,  speed: 60,  move: 'hover',  amp: 30, freq: 0.8, shoot: 2.4, bullet: 'doc3',   score: 250, name: 'Dept. Hospital' },
+    regulatory: { sprite: 'regulatory', w: 50, hp: 6,  speed: 75,  move: 'sine',   amp: 70, freq: 1.0, shoot: 1.9, bullet: 'para2',  score: 300, name: 'Regulatory' },
+    gdpr:       { sprite: 'gdpr',       w: 46,  hp: 6,  speed: 85,  move: 'drift',  amp: 15, freq: 3.0, shoot: 1.6, bullet: 'binary', score: 300, name: 'GDPR' },
+    mdr:        { sprite: 'mdr',        w: 115, hp: 80, speed: 0,   move: 'boss',   amp: 0,  freq: 0,   shoot: 0,   bullet: null,     score: 3000, name: 'MDR', boss: true },
+    scarlet:    { sprite: 'scarlet',    w: 125, hp: 120, speed: 0,  move: 'boss',   amp: 0,  freq: 0,   shoot: 0,   bullet: null,     score: 6000, name: 'SCARLET', boss: true },
   };
 
   // Depth zones: enemies are introduced gradually so every element can be seen.
@@ -104,7 +106,7 @@
       wall: '#b8935a', inner: '#8a6a3c', edge: '#e8cf94', accent: ['#ff7a59', '#ff4f8b', '#ffb347'], box: { label: 'BACKLOG', hp: 3, score: 60 } },
     { key: 'wreck',  depth: 700,  ceiling: true,  gap: [300, 400], slope: 0.5,  noise: 3,  tunnel: [1600, 2600], open: [500, 800], rock: 0.35, crate: 0.35, vent: 0,   chamber: 0.3,
       wall: '#34405e', inner: '#232c45', edge: '#6a7ba3', accent: ['#b0643a', '#8a4a2a'], box: { label: 'NDA', hp: 5, score: 80 } },
-    { key: 'cave',   depth: 1600, ceiling: true,  gap: [240, 330], slope: 0.7,  noise: 12, tunnel: [2000, 3000], open: [400, 700], rock: 0.4,  crate: 0.3,  vent: 0,   chamber: 0.35,
+    { key: 'cave',   depth: 1600, ceiling: true,  gap: [240, 330], slope: 0.7,  noise: 12, tunnel: [2000, 3000], open: [400, 700], rock: 0.4,  crate: 0,    vent: 0,   chamber: 0.35,
       wall: '#2e2446', inner: '#1c1530', edge: '#6b58a0', accent: ['#8e7bd1', '#b8a6ff'], box: { label: 'RED TAPE', hp: 6, score: 100 } },
     { key: 'trench', depth: 2600, ceiling: true,  gap: [200, 290], slope: 0.85, noise: 8,  tunnel: [2400, 3600], open: [300, 600], rock: 0.25, crate: 0.25, vent: 0.55, chamber: 0.35,
       wall: '#1e1719', inner: '#110c0e', edge: '#4a3a3c', accent: ['#ff5a1f', '#ffb347'], box: { label: 'LEGACY', hp: 8, score: 120 } },
@@ -127,8 +129,8 @@
     const c = CHARACTERS[charKey];
     G.char = c;
     G.player = {
-      x: 160, y: H / 2, vx: 0, vy: 0, w: c.width, h: spriteH(c.sprite, c.width),
-      hw: c.width * c.hitScale / 2, hh: spriteH(c.sprite, c.width) * c.hitScale / 2,
+      x: 160, y: H / 2, vx: 0, vy: 0, w: c.width * SPRITE_SCALE, h: spriteH(c.sprite, c.width * SPRITE_SCALE),
+      hw: c.width * SPRITE_SCALE * c.hitScale / 2, hh: spriteH(c.sprite, c.width * SPRITE_SCALE) * c.hitScale / 2,
       funding: c.funding, maxFunding: c.funding, tokens: c.tokens, maxTokens: c.tokens,
       fireCd: 0, invuln: 0, shield: 0, opus: 0, vortex: 0, deep: 0, onTopic: 0, specialCd: 0, tilt: 0,
     };
@@ -186,10 +188,10 @@
   }
   function spawnEnemy(typeKey, opts = {}) {
     const d = ENEMIES[typeKey];
-    const h = spriteH(d.sprite, d.w), x = opts.x ?? W + d.w;
+    const ew = d.w * SPRITE_SCALE, h = spriteH(d.sprite, ew), x = opts.x ?? W + ew;
     const e = {
-      type: typeKey, d, x, y: opts.y ?? randInGap(x, d.w * 0.36, h * 0.36, 70), w: d.w, h,
-      hw: d.w * 0.36, hh: h * 0.36, hp: d.hp, maxHp: d.hp, t: rand(0, 6.28), baseY: 0,
+      type: typeKey, d, x, y: opts.y ?? randInGap(x, ew * 0.36, h * 0.36, 70), w: ew, h,
+      hw: ew * 0.36, hh: h * 0.36, hp: d.hp, maxHp: d.hp, t: rand(0, 6.28), baseY: 0,
       shootT: rand(0.5, d.shoot || 1), dir: Math.random() < 0.5 ? 1 : -1, flash: 0, phase: 0,
     };
     e.baseY = e.y;
@@ -915,16 +917,22 @@
   function drawCrate(b, x) {
     const l = x - b.hw, t = b.y - b.hh, w = b.hw * 2, h = b.hh * 2;
     switch (b.th.key) {
-      case 'reef': // pile of tickets
-        for (let yy = t; yy < t + h - 2; yy += 9) { ctx.fillStyle = '#f1efe6'; ctx.fillRect(l + (yy % 3), yy, w - 2, 8); ctx.fillStyle = '#4a6bd6'; ctx.fillRect(l + 6, yy + 3, w - 16, 2); }
+      case 'reef': { // teetering stack of ticket cards
+        const tabs = ['#ffd23f', '#ff6b9d', '#5ad2ff', '#7dffb3'];
+        ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(l + 3, t + 3, w, h); // drop shadow
+        let row = 0;
+        for (let yy = t + h - 12; yy >= t; yy -= 12, row++) {
+          const ox = ((row * 7) % 5) - 2; // slight jitter so it reads as a pile
+          ctx.fillStyle = '#0b1020'; ctx.fillRect(l + ox - 1, yy - 1, w + 2, 13);
+          ctx.fillStyle = row % 2 ? '#fff8e1' : '#f3ecd2'; ctx.fillRect(l + ox, yy, w, 11);
+          ctx.fillStyle = tabs[row % tabs.length]; ctx.fillRect(l + ox, yy, 9, 11);
+          ctx.fillStyle = '#9aa3b5'; ctx.fillRect(l + ox + 13, yy + 3, w - 20, 2); ctx.fillRect(l + ox + 13, yy + 7, w - 28, 2);
+        }
         break;
+      }
       case 'wreck': // filing cabinet
         ctx.fillStyle = '#8f98a3'; ctx.fillRect(l, t, w, h);
         for (let yy = t + 4; yy < t + h - 10; yy += 26) { ctx.fillStyle = '#6b7380'; ctx.fillRect(l + 4, yy, w - 8, 22); ctx.fillStyle = '#d9dee5'; ctx.fillRect(x - 8, yy + 9, 16, 4); }
-        break;
-      case 'cave': // box wrapped in red tape
-        ctx.fillStyle = '#8a5a3a'; ctx.fillRect(l, t, w, h);
-        ctx.fillStyle = '#d0142c'; ctx.fillRect(x - 5, t, 10, h); ctx.fillRect(l, b.y - 5, w, 10);
         break;
       default: // legacy server rack
         ctx.fillStyle = '#1f2430'; ctx.fillRect(l, t, w, h); ctx.fillStyle = '#3a4152';
@@ -935,7 +943,12 @@
     }
     ctx.strokeStyle = '#0b1020'; ctx.lineWidth = 2; ctx.strokeRect(l, t, w, h);
     if (b.flash > 0) { ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.fillRect(l, t, w, h); }
-    text(b.th.box.label, x, b.y, 7, '#fff', 'center');
+    { // label plate
+      const lw = Math.max(w + 10, b.th.box.label.length * 7 + 12);
+      ctx.fillStyle = '#0b1020'; ctx.fillRect(x - lw / 2, b.y - 8, lw, 16);
+      ctx.fillStyle = '#ffe066'; ctx.fillRect(x - lw / 2, b.y - 8, lw, 2); ctx.fillRect(x - lw / 2, b.y + 6, lw, 2);
+      text(b.th.box.label, x, b.y + 1, 7, '#ffe066', 'center', false);
+    }
     if (b.hp < b.maxHp) {
       ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(x - 22, t - 8, 44, 5);
       ctx.fillStyle = '#ffb347'; ctx.fillRect(x - 22, t - 8, 44 * b.hp / b.maxHp, 5);
@@ -1057,7 +1070,7 @@
       ctx.save(); ctx.beginPath(); ctx.rect(px - ps / 2, py - ps / 2, ps, ps); ctx.clip(); // keep the aspect ratio, crop to the square
       const ph = spriteH(c.portrait, ps); drawSprite(c.portrait, px, py - ps / 2 + ph / 2, ps, ph); ctx.restore();
       ctx.strokeStyle = sel ? c.color : 'rgba(255,255,255,0.25)'; ctx.lineWidth = 3; ctx.strokeRect(px - ps / 2, py - ps / 2, ps, ps);
-      const sw = c.width * 0.7;
+      const sw = c.width * 1.4;
       drawSprite(c.sprite, cx + 70, 222 + Math.sin(elapsed * 2 + (sel ? 0 : 1)) * 5, sw, spriteH(c.sprite, sw));
       text(`${c.name} (${c.title})`, cx, 300, 13, c.color, 'center');
       c.blurb.forEach((l, j) => text(l, cx, 322 + j * 14, 8, '#dfe8ff', 'center'));
@@ -1109,7 +1122,7 @@
   }
   function drawVictory() {
     drawConfetti();
-    const c = G.char, sw = c.width * 1.2, sh = spriteH(c.sprite, sw);
+    const c = G.char, sw = c.width * 2.4, sh = spriteH(c.sprite, sw);
     const sub = { x: W / 2, y: H / 2 - 150 + Math.sin(elapsed * 2) * 6, w: sw, h: sh, tilt: 0 };
     drawPilotHead(sub, c);
     drawSprite(c.sprite, sub.x, sub.y, sw, sh);
