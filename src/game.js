@@ -99,6 +99,8 @@
   const MAX_DEPTH = 4000;
   const DESCENT_RATE = 22; // metres per second
   const WAVE_TIME = 2.2, WAVE_REACH = 1100; // FUNDRAISE: seconds for the pitch wave to cross the screen
+  const SLOWMO_TIME = 0.7, SLOWMO_SCALE = 0.25; // boss kill: real seconds of slow motion and the speed during it
+  const LETTERBOX_TIME = 2.5;                   // boss entrance: seconds of cinematic bars
   const DEEP_SCALE = 0.3;   // DEEP THOUGHT: world speed while active; Kaiko keeps full speed
   const TOPIC_FIRE = 0.66;  // STAY ON TOPIC: fire cooldown multiplier (about 1.5x the fire rate)
   const HOMING_TURN = 12.6; // rad/s a homing shot can turn (about 720 degrees per second)
@@ -186,7 +188,8 @@
       fireCd: 0, invuln: 0, shield: 0, opus: 0, vortex: 0, deep: 0, onTopic: 0, specialCd: 0, tilt: 0, drain: 0,
     };
     G.bullets = []; G.ebullets = []; G.enemies = []; G.hazards = []; G.pickups = []; G.beams = [];
-    G.particles = []; G.texts = []; G.bubbles = []; G.drain = [];
+    G.particles = []; G.texts = []; G.bubbles = []; G.drain = []; G.bills = []; G.fly = [];
+    G.hud = { fundGlow: 0, tokGlow: 0, tokEmpty: 0, chunk: null }; G.ripple = null; G.slowmo = 0; G.focus = null; G.letterbox = 0;
     G.depth = START_DEPTH; G.score = 0; G.time = 0; G.kills = 0;
     G.spawnT = 1.5; G.hazardT = 6; G.pickupT = 8; G.zoneIdx = -1; G.banner = null;
     G.boss = null; G.bossDefeated = {}; G.scrollX = 0; G.wave = null; G.endAt = 0; G.drips = []; G.winAt = 0; G.confetti = [];
@@ -431,7 +434,7 @@
     b.hw = b.w * 0.34; b.hh = b.h * 0.34; b.phase = 0; b.shootT = 1.5; b.entering = true;
     b.hp = b.maxHp = Math.round(b.d.hp * G.mods.bossHp);
     if (key === 'mdr') { b.stage = 0; b.checks = [false, false, false]; b.gapRow = 3; b.wallT = 0; b.spiral = 0; b.minionT = 8; b.cycle = 0; }
-    G.boss = b;
+    G.boss = b; G.letterbox = LETTERBOX_TIME;
     G.banner = { title: key === 'mdr' ? 'WARNING: MDR AUDIT' : 'FINAL REVIEW: SCARLET', sub: key === 'mdr' ? 'Prove your device is safe.' : 'Get that CE mark.', t: 3.2, boss: true };
     Sound.play('special');
   }
@@ -447,7 +450,11 @@
       Sound.play('vortex'); return;
     }
     const topic = p.onTopic > 0, cost = topic ? 0 : m.tokenCost;
-    if (p.tokens < cost) { if (Math.random() < 0.3) addText(p.x, p.y - 50, 'TOKEN LIMIT!', '#ff6b6b'); Sound.play('denied'); p.fireCd = 0.25; return; }
+    if (p.tokens < cost) { // dry fire: the gun sputters a grey puff and the empty token bar blinks
+      if (Math.random() < 0.15) addText(p.x, p.y - 50, 'TOKEN LIMIT!', '#ff6b6b');
+      for (let i = 0; i < 5; i++) G.particles.push({ x: p.x + p.w * 0.45, y: p.y + 4, vx: rand(20, 70), vy: rand(-40, 10), life: rand(0.4, 0.7), t: 0, color: 'rgba(170,180,195,0.8)', size: rand(3, 6) });
+      G.hud.tokEmpty = 0.5; Sound.play('denied'); p.fireCd = 0.25; return;
+    }
     p.tokens -= cost;
     if (m.misfire && Math.random() < m.misfire) { // HOTFIX STRAIGHT TO PROD: the shot blows up in the tube
       p.fireCd = 0.35; burst(p.x + p.w * 0.45, p.y, '#ff8a3d', 14, 200); Sound.play('denied');
@@ -480,7 +487,7 @@
       p.funding = Math.min(p.maxFunding, p.funding + 30);
       addText(p.x, p.y - 60, 'FUNDRAISE! +30 funding', '#5cff5c');
     } else if (c.key === 'robert') {
-      p.deep = s.duration;
+      p.deep = s.duration; G.ripple = { x: p.x, y: p.y, t: 0 };
       addText(p.x, p.y - 60, 'DEEP THOUGHT...', c.color);
     } else {
       p.onTopic = s.duration;
@@ -510,7 +517,7 @@
       burst(e.x, e.y, '#ffb347', e.d.boss ? 90 : 18, e.d.boss ? 400 : 220);
       burst(e.x, e.y, '#ff5c5c', e.d.boss ? 60 : 10, e.d.boss ? 300 : 160);
       if (e.d.boss) {
-        Sound.play('bigExplode'); shake = 0.8; flash = 0.5;
+        Sound.play('bigExplode'); shake = 0.8; flash = 0.5; G.slowmo = SLOWMO_TIME; G.focus = { x: e.x, y: e.y };
         G.bossDefeated[e.type] = true; G.boss = null; G.beams = [];
         if (e.type === 'mdr') {
           for (const o of G.enemies) if (!o.d.boss && !o.dead) { o.dead = true; burst(o.x, o.y, '#ffb347', 12, 200); }
@@ -542,18 +549,34 @@
     G.drips = win ? [] : makeDrips();
     G.confetti = win ? makeConfetti() : [];
   }
+  // HUD bar geometry, shared by the bars and the effects that fly into or fall off them.
+  const HUD_BARS = { funding: { x: 16, y: 22, w: 220, h: 12 }, tokens: { x: 262, y: 22, w: 220, h: 12 } };
+  const barFrac = (k) => k === 'funding' ? G.player.funding / G.player.maxFunding : G.player.tokens / G.player.maxTokens;
+  // Money leaving the company: € bills flutter off the sub and a chunk breaks off the funding bar.
+  function fundingLossFx(amount, prevFrac) {
+    const p = G.player, n = clamp(Math.round(amount / 5), 2, 7);
+    for (let i = 0; i < n; i++) G.bills.push({ x: p.x + rand(-p.w, p.w) * 0.25, y: p.y - p.h * 0.2, vx: rand(-90, 60), vy: rand(-160, -60), rot: rand(0, 6.28), vr: rand(-6, 6), ph: rand(0, 6.28), t: 0, life: rand(1.0, 1.5) });
+    G.hud.chunk = { from: prevFrac, to: barFrac('funding'), t: 0 };
+  }
+  // Something good arriving: a glowing orb flies from the sub into its HUD bar, which glows on arrival.
+  function flyToBar(kind, color) {
+    const p = G.player;
+    G.fly.push({ kind, color, x: p.x, y: p.y, t: 0, life: 0.55 });
+  }
   function hurtPlayer(amount, reason) {
     const p = G.player;
     if (p.invuln > 0 || p.shield > 0 || GOD) return;
     amount = Math.round(amount * G.mods.dmgTaken);
+    const before = p.funding / p.maxFunding;
     p.funding -= amount; p.invuln = 1.0; shake = Math.max(shake, 0.25); flash = 0.25;
+    fundingLossFx(amount, before);
     Sound.play('hurt');
     addText(p.x, p.y - 55, `-${amount} funding` + (reason ? ` (${reason})` : ''), '#ff6b6b');
     burst(p.x, p.y, '#ffb347', 12, 180);
     if (p.funding <= 0) { p.funding = 0; endRun(false); burst(p.x, p.y, '#ffb300', 60, 300); }
   }
   function applyPickup(k) {
-    const p = G.player, def = POWERUPS[k];
+    const p = G.player, def = POWERUPS[k], fundBefore = p.funding / p.maxFunding;
     switch (k) {
       case 'opus6': p.opus = 12; break;
       case 'vortex3': p.vortex = 8; break;
@@ -568,6 +591,9 @@
     addText(p.x, p.y - 60, def.text, def.color, true);
     Sound.play(k === 'opus6' || k === 'vortex3' || k === 'shield' || k === 'mdrcert' ? 'powerup' : 'pickup');
     burst(p.x, p.y, def.color, 16, 160);
+    if (k === 'funding' || k === 'deal') flyToBar('funding', '#5cff5c');
+    if (k === 'tokens' || k === 'credits') flyToBar('tokens', '#6ec6ff');
+    if (k === 'credits') fundingLossFx(15, fundBefore);
   }
 
   // ------------------------------------------------------------ enemy bullets
@@ -691,6 +717,12 @@
       else { p.tokens = Math.max(0, p.tokens - 25 * dt); if (Math.random() < dt * 2) addText(p.x, p.y - 50, 'AZURE OUTAGE: tokens draining', '#8fb3ff'); }
     }
     for (const d of G.drain) { d.t += dt; if (d.t >= d.life) d.dead = true; }
+    for (const q of G.bills) { q.t += dt; q.vy += 140 * dt; q.vx *= 0.98; q.x += (q.vx + Math.sin(q.t * 9 + q.ph) * 45) * dt; q.y += q.vy * dt; q.rot += q.vr * dt; if (q.t > q.life) q.dead = true; }
+    for (const f of G.fly) { f.t += dt; if (f.t >= f.life) { f.dead = true; G.hud[f.kind === 'funding' ? 'fundGlow' : 'tokGlow'] = 0.5; } }
+    const hd = G.hud; hd.fundGlow = Math.max(0, hd.fundGlow - dt); hd.tokGlow = Math.max(0, hd.tokGlow - dt); hd.tokEmpty = Math.max(0, hd.tokEmpty - dt);
+    if (hd.chunk && (hd.chunk.t += dt) > 0.8) hd.chunk = null;
+    if (G.ripple && (G.ripple.t += dt) > 1.4) G.ripple = null;
+    G.letterbox = Math.max(0, G.letterbox - dt);
 
     // spawn enemies
     if (!zone.boss) {
@@ -739,6 +771,7 @@
       b.t += dt;
       if (b.homing) steer(b, dt);
       b.x += b.vx * dt; b.y += b.vy * dt;
+      if (b.homing) { (b.trail || (b.trail = [])).push(b.x, b.y); if (b.trail.length > 16) b.trail.splice(0, 2); } // last 8 positions
       if (b.x > W + 40 || b.x < -40 || b.y < -20 || b.y > H + 20) b.dead = true;
       if (b.dead) continue;
       for (const e of G.enemies) {
@@ -815,7 +848,7 @@
     G.beams = G.beams.filter(b => !b.dead);
     G.pickups = G.pickups.filter(k => !k.dead);
     G.particles = G.particles.filter(q => !q.dead);
-    G.drain = G.drain.filter(d => !d.dead);
+    G.drain = G.drain.filter(d => !d.dead); G.bills = G.bills.filter(q => !q.dead); G.fly = G.fly.filter(f => !f.dead);
     G.texts = G.texts.filter(t => !t.dead);
   }
 
@@ -931,6 +964,7 @@
         for (let i = 0; i < 3; i++) { ctx.rotate(2.094); ctx.fillStyle = i === 0 ? '#7dffb3' : i === 1 ? '#4fd1ff' : '#ffffff'; ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(b.r * 0.8, -b.r * 0.6, b.r * 1.2, b.r * 0.3); ctx.quadraticCurveTo(b.r * 0.4, b.r * 0.4, 0, 0); ctx.fill(); }
         ctx.restore();
       } else if (b.kind === 'topic') {
+        if (b.trail) { ctx.save(); ctx.strokeStyle = CHARACTERS.veerle.color; ctx.lineCap = 'round'; for (let i = 2; i < b.trail.length; i += 2) { ctx.globalAlpha = 0.5 * i / b.trail.length; ctx.lineWidth = 1 + 3 * i / b.trail.length; ctx.beginPath(); ctx.moveTo(b.trail[i - 2], b.trail[i - 1]); ctx.lineTo(b.trail[i], b.trail[i + 1]); ctx.stroke(); } ctx.restore(); }
         ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(Math.atan2(b.vy, b.vx));
         ctx.fillStyle = CHARACTERS.veerle.color; ctx.fillRect(-8, -3, 16, 6);
         ctx.fillStyle = '#fff'; ctx.fillRect(-2, -2, 6, 4);
@@ -1098,6 +1132,17 @@
     }
   }
   function drawEffects() {
+    for (const q of G.bills) { // € bills
+      ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(q.rot); ctx.scale(1, Math.cos(q.t * 7)); ctx.globalAlpha = clamp(1.5 - q.t / q.life * 1.5, 0, 1);
+      ctx.fillStyle = '#2e7d32'; ctx.fillRect(-9, -5, 18, 10); ctx.fillStyle = '#7ddc7f'; ctx.fillRect(-7, -3, 14, 6);
+      ctx.fillStyle = '#1b4d1e'; ctx.fillRect(-2, -2, 4, 4);
+      ctx.restore();
+    }
+    if (G.ripple) { // DEEP THOUGHT: slow concentric rings spreading from Robert
+      const rp = G.ripple; ctx.save(); ctx.strokeStyle = '#9fd4ff';
+      for (let i = 0; i < 3; i++) { const k = clamp((rp.t - i * 0.25) / 1.1, 0, 1); if (k <= 0 || k >= 1) continue; ctx.globalAlpha = 0.6 * (1 - k); ctx.lineWidth = 6 * (1 - k) + 1; ctx.beginPath(); ctx.arc(rp.x, rp.y, 30 + k * 700, 0, 6.283); ctx.stroke(); }
+      ctx.restore();
+    }
     // token chips being sucked into an azure cloud: accelerate toward its centre on a curling path, shrinking
     for (const d of G.drain) {
       const k = clamp(d.t / d.life, 0, 1), e = k * k * k;
@@ -1117,7 +1162,19 @@
     ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(0, 0, W, 46);
     bar(16, 22, 220, 12, p.funding / p.maxFunding, p.funding < p.maxFunding * 0.3 ? '#ff5c5c' : '#5cff5c', 'FUNDING (HP)', `${Math.ceil(p.funding)}/${p.maxFunding}`);
     bar(262, 22, 220, 12, p.tokens / p.maxTokens, '#6ec6ff', 'TOKEN LIMIT (MANA)', `${Math.floor(p.tokens)}/${p.maxTokens}`);
-    if (p.drain > 0 && Math.floor(elapsed * 10) % 2 === 0) { ctx.strokeStyle = '#ff5c5c'; ctx.lineWidth = 2; ctx.strokeRect(259, 19, 226, 18); }
+    const hd = G.hud, outline = (b, color, alpha) => { ctx.save(); ctx.globalAlpha = alpha; ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.strokeRect(b.x - 3, b.y - 3, b.w + 6, b.h + 6); ctx.restore(); };
+    if ((p.drain > 0 || hd.tokEmpty > 0) && Math.floor(elapsed * 10) % 2 === 0) outline(HUD_BARS.tokens, '#ff5c5c', 1);
+    if (hd.fundGlow > 0) outline(HUD_BARS.funding, '#5cff5c', hd.fundGlow * 2);
+    if (hd.tokGlow > 0) outline(HUD_BARS.tokens, '#6ec6ff', hd.tokGlow * 2);
+    if (hd.chunk) { // the lost slice of the funding bar breaks off and drops
+      const b = HUD_BARS.funding, k = hd.chunk.t / 0.8, x = b.x + b.w * clamp(hd.chunk.to, 0, 1), w = b.w * Math.max(0, hd.chunk.from - hd.chunk.to);
+      ctx.save(); ctx.globalAlpha = 1 - k; ctx.translate(x + w / 2, b.y + b.h / 2 + k * k * 60); ctx.rotate(k * 0.6); ctx.fillStyle = '#ff5c5c'; ctx.fillRect(-w / 2, -b.h / 2, w, b.h); ctx.restore();
+    }
+    for (const f of G.fly) { // pickups flying into their bar
+      const b = HUD_BARS[f.kind], k = f.t / f.life, e = k * k, tx = b.x + b.w * clamp(barFrac(f.kind), 0, 1), ty = b.y + b.h / 2;
+      const x = lerp(f.x, tx, e), y = lerp(f.y, ty, e) - Math.sin(k * Math.PI) * 60;
+      ctx.save(); ctx.fillStyle = f.color; ctx.shadowColor = f.color; ctx.shadowBlur = 12; ctx.beginPath(); ctx.arc(x, y, 7 - 3 * k, 0, 6.283); ctx.fill(); ctx.restore();
+    }
     // special
     const sp = c.special, ready = p.specialCd <= 0 && p.tokens >= sp.cost;
     bar(508, 22, 200, 12, p.specialCd > 0 ? 1 - p.specialCd / sp.cooldown : 1, ready ? c.color : '#777', `SHIFT: ${sp.name}`, ready ? 'READY' : p.specialCd > 0 ? `${Math.ceil(p.specialCd)}s` : `${sp.cost} TOK`);
@@ -1282,6 +1339,8 @@
     if (shake > 0) ctx.translate(rand(-1, 1) * shake * 14, rand(-1, 1) * shake * 14);
     if (state === 'title') { drawTitle(); ctx.restore(); return; }
     if (state === 'risks') { drawRisks(); ctx.restore(); return; }
+    ctx.save();
+    if (G.slowmo > 0 && G.focus) { const z = 1 + 0.12 * Math.sin(Math.PI * G.slowmo / SLOWMO_TIME); ctx.translate(G.focus.x, G.focus.y); ctx.scale(z, z); ctx.translate(-G.focus.x, -G.focus.y); } // push in on the boss kill
     drawBackground(clamp(G.depth / MAX_DEPTH, 0, 1), G.scrollX, 1);
     drawBubbles();
     drawTerrain();
@@ -1294,6 +1353,8 @@
     if (state !== 'gameover') drawPlayer();
     drawBullets();
     drawEffects();
+    ctx.restore();
+    if (G.letterbox > 0) { const k = Math.min(1, G.letterbox * 2, (LETTERBOX_TIME - G.letterbox) * 4), bh = 48 * k; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, bh); ctx.fillRect(0, H - bh, W, bh); } // boss entrance
     if (flash > 0) { ctx.fillStyle = `rgba(255,80,80,${flash * 0.5})`; ctx.fillRect(0, 0, W, H); }
     if (G.player.deep > 0 && (state === 'play' || state === 'paused')) { ctx.fillStyle = 'rgba(70,130,255,0.14)'; ctx.fillRect(0, 0, W, H); }
     drawHUD();
@@ -1306,7 +1367,9 @@
   // ------------------------------------------------------------ loop
   function frame(ts) {
     const dt = Math.min(0.05, (ts - lastTime) / 1000 || 0); lastTime = ts;
-    for (let i = 0; i < TURBO; i++) update(dt); render();
+    const slow = G.slowmo > 0 && state === 'play'; // boss kill slow motion runs on real time
+    if (G.slowmo > 0) G.slowmo -= dt;
+    for (let i = 0; i < TURBO; i++) update(slow ? dt * SLOWMO_SCALE : dt); render();
     requestAnimationFrame(frame);
   }
   ctx.fillStyle = '#0a1a4a'; ctx.fillRect(0, 0, W, H);
