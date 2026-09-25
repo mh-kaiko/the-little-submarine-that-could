@@ -85,8 +85,11 @@ def portrait(name, tol=24, width=256):
 if __name__ == '__main__':
     portrait('robert')
     portrait('thomas')
+    portrait('veerle')
+    # assets/raw/submarine.png is now the dome sub (ea99889). The committed
+    # kaiko_sub.png is the old big sub, so write the dome to its own sprite.
     sub = crop_to_content(transparentize('submarine', tol=14))
-    Image.fromarray(sub).save(f'{OUT}/kaiko_sub.png')
-    print(f'kaiko_sub    {sub.shape[1]}x{sub.shape[0]}')
+    Image.fromarray(sub).save(f'{OUT}/kaiko_dome.png')
+    print(f'kaiko_dome   {sub.shape[1]}x{sub.shape[0]}')
     split_sheet('enemies1', ['kaiko_mini', 'datadesk', 'legal', 'hospital', 'research', 'it'], tol=30, label_top=540)
     split_sheet('enemies2', ['regulatory', 'gdpr', 'mdr', 'scarlet'], tol=30, label_top=590)
