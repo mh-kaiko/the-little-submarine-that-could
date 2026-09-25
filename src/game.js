@@ -51,7 +51,7 @@
     },
     veerle: {
       key: 'veerle', name: 'VEERLE', title: 'MD', sprite: 'kaiko_dome', portrait: 'veerle', color: '#c08cff',
-      hatch: { x: 0.6, y: 0.28, size: 0.2 },
+      hatch: { x: 0.73, y: 0.3, size: 0.2 }, // right of the periscope, before the front dome
       width: 130, hitScale: 0.55, speed: 270, funding: 100, tokens: 110, fireRate: 0.19, tokenRegen: 12, bulletDmg: 1,
       blurb: ['The clinical sub.', 'Balanced hull and speed.', 'Keeps everyone on topic.'],
       special: { name: 'STAY ON TOPIC', cost: 30, cooldown: 12, duration: 8, desc: ['8 seconds of free,', 'homing, piercing shots.', 'Nobody wanders off.'] },
